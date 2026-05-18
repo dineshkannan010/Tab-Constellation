@@ -16,10 +16,19 @@ dist/
 build/
 *.tsbuildinfo
 
-# Env files
+# Ingest pipeline output
+api/data/
+
+# Secrets / env files
 .env
-.env.local
-.env.*.local
+.env.*
+*.token
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
 
 # OS / editor
 .DS_Store

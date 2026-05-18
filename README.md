@@ -32,7 +32,7 @@ python -m venv .venv
 # Windows PowerShell:  .\.venv\Scripts\Activate
 # macOS / Linux:       source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Sanity check: `http://localhost:8000/health` → `{"status":"ok"}`.
@@ -66,6 +66,13 @@ Opens at `http://localhost:5173`. In the corner you should see
 If the badge says **✗ Backend offline**, the API isn't reachable —
 make sure `uvicorn` is running on port 8000.
 
+## Security
+
+See [`SECURITY.md`](./SECURITY.md). TL;DR: API binds to loopback only,
+all `/ingest/*` routes require a bearer token, incognito tabs are
+skipped, and `api/data/` plus secrets are gitignored.
+
 ## Status
-Skeleton only created for now. No vector search, no embeddings, no 3D rendering
-yet. The constellation view is a placeholder.
+Capture pipeline lands data in `api/data/*.jsonl` and
+`api/data/screenshots/`. No vector search, no embeddings, no 3D
+rendering yet. The constellation view is a placeholder.

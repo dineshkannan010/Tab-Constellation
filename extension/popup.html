@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tab Constellation</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img src="icons/icon32.png" alt="" width="22" height="22" />
+        <span>Tab Constellation</span>
+      </div>
+      <div class="health" id="health">
+        <span class="dot" id="health-dot"></span>
+        <span id="health-label">checking…</span>
+      </div>
+    </header>
+
+    <section class="stats">
+      <div class="row">
+        <span class="label">Session</span>
+        <span class="val mono" id="session">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Tabs captured</span>
+        <span class="val" id="tabs">0</span>
+      </div>
+      <div class="row">
+        <span class="label">Pending queue</span>
+        <span class="val" id="pending">0</span>
+      </div>
+      <div class="row">
+        <span class="label">Last screenshot</span>
+        <span class="val" id="last-shot">—</span>
+      </div>
+      <div class="row">
+        <span class="label">History backfill</span>
+        <span class="val" id="backfilled">—</span>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button class="primary" id="btn-open">Open Constellation</button>
+      <button id="btn-backfill">Re-run history backfill</button>
+      <button id="btn-flush">Flush pending queue now</button>
+      <button class="danger" id="btn-clear">Clear all local state</button>
+    </section>
+
+    <footer id="footer"></footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
