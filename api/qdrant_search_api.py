@@ -43,6 +43,8 @@ app = FastAPI(
     description="Semantic search and feature queries for Tab Constellation",
 )
 
+router = app.router
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],  # React dev server
@@ -410,6 +412,138 @@ def get_all_nodes(
         "nodes":       [r.payload for r in results],
         "next_offset": next_offset,
         "count":       len(results),
+    }
+
+
+@app.get("/api/v1/insights/rabbit-holes")
+def get_rabbit_hole_insights():
+    """
+    Find sessions with depth > 2 — the actual rabbit holes.
+    Returns sessions ordered by max depth descending.
+    """
+    client = get_qdrant_client()
+    results, _ = client.scroll(
+        collection_name=ACTIVE_CONFIG.collection_name,
+        scroll_filter=Filter(
+            must=[FieldCondition(key="depth", range=Range(gte=2))]
+        ),
+        limit=200,
+        with_payload=True,
+    )
+    
+    # Group by session
+    sessions: dict[str, list] = {}
+    for r in results:
+        p = r.payload
+        sid = p.get("session_id", "unknown")
+        if sid not in sessions:
+            sessions[sid] = []
+        sessions[sid].append(p)
+    
+    # Build rabbit hole chains ordered by depth
+    rabbit_holes = []
+    for sid, nodes in sessions.items():
+        sorted_nodes = sorted(nodes, key=lambda n: n.get("depth", 0))
+        max_depth = max(n.get("depth", 0) for n in sorted_nodes)
+        total_time = sum(n.get("time_spent", 0) for n in sorted_nodes)
+        has_distraction = any(n.get("is_distraction") for n in sorted_nodes)
+        
+        rabbit_holes.append({
+            "session_id":       sid,
+            "max_depth":        max_depth,
+            "total_time":       total_time,
+            "node_count":       len(sorted_nodes),
+            "has_distraction":  has_distraction,
+            "origin_cluster":   sorted_nodes[0].get("cluster", "unknown"),
+            "exit_cluster":     sorted_nodes[-1].get("cluster", "unknown"),
+            "chain": [{
+                "title":        n.get("title", ""),
+                "domain":       n.get("domain", ""),
+                "cluster":      n.get("cluster", ""),
+                "depth":        n.get("depth", 0),
+                "is_distraction": n.get("is_distraction", False),
+                "time_spent":   n.get("time_spent", 0),
+                "url":          n.get("url", ""),
+            } for n in sorted_nodes],
+        })
+    
+    rabbit_holes.sort(key=lambda x: x["max_depth"], reverse=True)
+    return {"rabbit_holes": rabbit_holes[:10]}
+
+
+@app.get("/api/v1/insights/distraction-summary")
+def get_distraction_summary():
+    """
+    Distraction fingerprint — patterns, domains, time lost.
+    """
+    client = get_qdrant_client()
+    results, _ = client.scroll(
+        collection_name=ACTIVE_CONFIG.collection_name,
+        scroll_filter=Filter(
+            must=[FieldCondition(key="is_distraction", match=MatchValue(value=True))]
+        ),
+        limit=200,
+        with_payload=True,
+    )
+    
+    payloads = [r.payload for r in results]
+    if not payloads:
+        return {"total": 0, "time_lost": 0, "by_domain": [], "by_cluster": []}
+    
+    total_time = sum(p.get("time_spent", 0) for p in payloads)
+    
+    # By domain
+    domain_map: dict[str, dict] = {}
+    for p in payloads:
+        d = p.get("domain", "unknown")
+        if d not in domain_map:
+            domain_map[d] = {"domain": d, "visits": 0, "time_spent": 0}
+        domain_map[d]["visits"]     += p.get("visit_count", 1)
+        domain_map[d]["time_spent"] += p.get("time_spent", 0)
+    
+    # By cluster
+    cluster_map: dict[str, dict] = {}
+    for p in payloads:
+        c = p.get("cluster", "unknown")
+        if c not in cluster_map:
+            cluster_map[c] = {"cluster": c, "count": 0, "time_spent": 0}
+        cluster_map[c]["count"]      += 1
+        cluster_map[c]["time_spent"] += p.get("time_spent", 0)
+    
+    return {
+        "total":      len(payloads),
+        "time_lost":  total_time,
+        "by_domain":  sorted(domain_map.values(),  key=lambda x: x["time_spent"], reverse=True)[:8],
+        "by_cluster": sorted(cluster_map.values(), key=lambda x: x["time_spent"], reverse=True),
+    }
+
+
+@app.get("/api/v1/insights/focus-summary")  
+def get_focus_summary():
+    """Overall focus stats for the dashboard."""
+    client = get_qdrant_client()
+    all_nodes, _ = client.scroll(
+        collection_name=ACTIVE_CONFIG.collection_name,
+        limit=500,
+        with_payload=True,
+    )
+    
+    payloads = [r.payload for r in all_nodes]
+    if not payloads:
+        return {"avg_focus": 0, "total_time": 0, "focus_time": 0, "distraction_time": 0}
+    
+    total_time      = sum(p.get("time_spent", 0) for p in payloads)
+    distraction_time = sum(p.get("time_spent", 0) for p in payloads if p.get("is_distraction"))
+    focus_time      = total_time - distraction_time
+    avg_focus       = sum(p.get("focus_score", 0) for p in payloads) / len(payloads)
+    
+    return {
+        "avg_focus":         round(avg_focus, 2),
+        "total_time":        total_time,
+        "focus_time":        focus_time,
+        "distraction_time":  distraction_time,
+        "total_nodes":       len(payloads),
+        "distraction_nodes": sum(1 for p in payloads if p.get("is_distraction")),
     }
 
 

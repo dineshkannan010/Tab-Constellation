@@ -61,3 +61,6 @@ def health() -> dict[str, str]:
 
 
 app.include_router(ingest_router)
+
+from qdrant_search_api import router as qdrant_router
+app.include_router(qdrant_router)

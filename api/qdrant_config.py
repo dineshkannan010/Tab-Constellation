@@ -55,13 +55,13 @@ PROD_CONFIG = QdrantConfig(
     vector_dim       = 384,
     distance         = "Cosine",
     default_top_k    = 10,
-    score_threshold  = 0.55,
+    score_threshold  = 0.2,
     batch_size       = 100,
 )
 
 # ── Active config ─────────────────────────────────────────────
 # Change ENVIRONMENT to switch between dev and prod.
-ENVIRONMENT   = Environment.DEVELOPMENT
+ENVIRONMENT   = Environment.PRODUCTION
 ACTIVE_CONFIG = DEV_CONFIG if ENVIRONMENT == Environment.DEVELOPMENT else PROD_CONFIG
 
 # ── Embedding model ───────────────────────────────────────────

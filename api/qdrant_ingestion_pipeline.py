@@ -33,6 +33,7 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    Range,
 )
 
 from qdrant_config import (
@@ -237,7 +238,7 @@ def verify_ingestion(client: QdrantClient) -> None:
             must=[
                 FieldCondition(
                     key="days_since_visit",
-                    range={"gte": 21},
+                    range=Range(gte=21),
                 )
             ]
         ),

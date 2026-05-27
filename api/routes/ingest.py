@@ -23,6 +23,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import AwareDatetime, BaseModel, Field
 
+from routes.ingest_realtime import process_tab
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SCREENSHOT_DIR = DATA_DIR / "screenshots"
@@ -124,6 +125,7 @@ def _serialize(payload: BaseModel) -> dict:
 @router.post("/tab")
 def ingest_tab(payload: TabPayload) -> dict:
     append_jsonl(TABS_FILE, _serialize(payload))
+    process_tab(payload.model_dump(mode="json"))   # ← your pipeline
     return {"status": "ok", "received": {"tab_id": payload.tab_id, "url": payload.url}}
 
 
