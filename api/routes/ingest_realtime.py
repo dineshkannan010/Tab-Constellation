@@ -1,6 +1,6 @@
 """
 Tab Constellation — Real-time ingestion into Qdrant + Neo4j.
-4-layer classification: domain rules → YouTube DOM → NLI → search query extraction
+4-layer classification + content-aware distraction detection.
 """
 
 from __future__ import annotations
@@ -29,89 +29,115 @@ CLUSTER_NAMES = [
 
 # ── Layer 1: Definitive domain map ─────────────────────────────
 DEFINITIVE_DOMAINS: dict[str, str] = {
-    # Entertainment
+    # Entertainment — always
     "netflix.com": "entertainment", "twitch.tv": "entertainment",
     "tiktok.com": "entertainment", "spotify.com": "entertainment",
     "imdb.com": "entertainment", "primevideo.com": "entertainment",
     "disneyplus.com": "entertainment", "hulu.com": "entertainment",
     "soundcloud.com": "entertainment", "9gag.com": "entertainment",
-    # Social
+    "buzzfeed.com": "entertainment",
+
+    # Social — may override to research based on content
     "twitter.com": "social", "x.com": "social",
     "instagram.com": "social", "facebook.com": "social",
-    "reddit.com": "social", "linkedin.com": "social",
-    "discord.com": "social", "threads.net": "social",
+    "linkedin.com": "social", "threads.net": "social",
     "pinterest.com": "social", "snapchat.com": "social",
-    # News
-    "bbc.com": "news", "bbc.co.uk": "news",
-    "cnn.com": "news", "reuters.com": "news",
-    "theguardian.com": "news", "nytimes.com": "news",
-    "techcrunch.com": "news", "theverge.com": "news",
-    "wired.com": "news", "arstechnica.com": "news",
-    "news.ycombinator.com": "news", "washingtonpost.com": "news",
-    # Work / Code
-    "github.com": "work", "gitlab.com": "work",
-    "bitbucket.org": "work", "jira.atlassian.com": "work",
-    "notion.so": "work", "trello.com": "work",
-    "asana.com": "work", "clickup.com": "work",
-    "linear.app": "work", "figma.com": "creative",
-    "canva.com": "creative", "behance.net": "creative",
-    "dribbble.com": "creative", "framer.com": "creative",
-    # Reference / Docs
-    "stackoverflow.com": "reference",
-    "developer.mozilla.org": "reference",
-    "docs.python.org": "reference",
-    "kubernetes.io": "reference",
-    "docs.docker.com": "reference",
-    "devdocs.io": "reference",
+    # reddit handled separately — content-aware
+
+    # Reference — encyclopedic content
+    "en.wikipedia.org": "reference", "wikipedia.org": "reference",
+    "stackoverflow.com": "reference", "stackexchange.com": "reference",
+    "developer.mozilla.org": "reference", "docs.python.org": "reference",
+    "kubernetes.io": "reference", "docs.docker.com": "reference",
+    "devdocs.io": "reference", "man7.org": "reference",
+    "w3schools.com": "reference",
+
     # Research
     "arxiv.org": "research", "huggingface.co": "research",
     "paperswithcode.com": "research", "semanticscholar.org": "research",
     "pubmed.ncbi.nlm.nih.gov": "research", "researchgate.net": "research",
     "openai.com": "research", "anthropic.com": "research",
     "deepmind.google": "research", "mistral.ai": "research",
+    "qdrant.tech": "research",
+
+    # Work / Code
+    "github.com": "work", "gitlab.com": "work",
+    "bitbucket.org": "work", "jira.atlassian.com": "work",
+    "notion.so": "work", "trello.com": "work",
+    "asana.com": "work", "clickup.com": "work",
+    "linear.app": "work", "vllm.ai": "work",
+    "pytorch.org": "research", "tensorflow.org": "research",
+
+    # News
+    "bbc.com": "news", "bbc.co.uk": "news",
+    "cnn.com": "news", "reuters.com": "news",
+    "theguardian.com": "news", "nytimes.com": "news",
+    "techcrunch.com": "news", "theverge.com": "news",
+    "wired.com": "news", "arstechnica.com": "news",
+    "news.ycombinator.com": "news",
+
     # Finance
     "bloomberg.com": "finance", "investopedia.com": "finance",
     "tradingview.com": "finance", "coinbase.com": "finance",
     "binance.com": "finance", "robinhood.com": "finance",
-    "wsj.com": "finance", "ft.com": "finance",
+
     # Shopping
     "amazon.com": "shopping", "ebay.com": "shopping",
     "etsy.com": "shopping", "walmart.com": "shopping",
-    "target.com": "shopping", "aliexpress.com": "shopping",
+
     # Travel
     "airbnb.com": "travel", "booking.com": "travel",
     "tripadvisor.com": "travel", "skyscanner.com": "travel",
-    "expedia.com": "travel", "kayak.com": "travel",
+
     # Health
     "webmd.com": "health", "mayoclinic.org": "health",
-    "healthline.com": "health", "nih.gov": "health",
+    "healthline.com": "health",
+
+    # Creative
+    "figma.com": "creative", "canva.com": "creative",
+    "behance.net": "creative", "dribbble.com": "creative",
+    "framer.com": "creative",
+
     # Communication
     "mail.google.com": "communication",
     "outlook.live.com": "communication",
     "slack.com": "communication", "zoom.us": "communication",
     "teams.microsoft.com": "communication",
     "calendar.google.com": "communication",
+
     # Learning
     "coursera.org": "research", "udemy.com": "research",
     "khanacademy.org": "research", "edx.org": "research",
     "freecodecamp.org": "work", "brilliant.org": "research",
-    "duolingo.com": "research",
 }
 
-# ── Layer 2: YouTube DOM signals ───────────────────────────────
-YOUTUBE_WORK_SIGNALS = [
-    "tutorial", "course", "lecture", "how to", "explained",
-    "programming", "coding", "learn ", "conference", "talk at",
-    "documentary", "science", "research", "full course",
-    "crash course", "bootcamp", "workshop", "keynote",
+# ── Content signals ────────────────────────────────────────────
+FOCUS_SIGNALS = [
+    "tutorial", "documentation", "how to", "guide", "learn",
+    "explained", "introduction to", "deep dive", "analysis",
+    "research", "paper", "study", "course", "lecture",
+    "implementation", "algorithm", "architecture", "technical",
+    "code", "programming", "engineering", "science", "math",
+    "review", "breakdown", "walkthrough", "best practices",
+    "open source", "library", "framework", "api", "database",
 ]
 
-# ── Distraction config ─────────────────────────────────────────
-DISTRACTION_CLUSTERS  = {"entertainment", "social"}
-DISTRACTION_DOMAINS = {
-    "youtube.com", "netflix.com", "twitch.tv", "tiktok.com",
-    "instagram.com", "twitter.com", "x.com", "facebook.com",
-    "reddit.com", "9gag.com", "buzzfeed.com", "threads.net",
+SHALLOW_SIGNALS = [
+    "feed", "home", "trending", "explore", "timeline",
+    "for you", "recommended", "watch later", "subscriptions",
+    "notifications", "messages", "stories",
+]
+
+# ── Always distraction domains ─────────────────────────────────
+ALWAYS_DISTRACTION = {
+    "netflix.com", "tiktok.com", "twitch.tv",
+    "9gag.com", "buzzfeed.com", "instagram.com",
+}
+
+# ── Social domains — content-aware ────────────────────────────
+SOCIAL_DOMAINS = {
+    "reddit.com", "old.reddit.com", "twitter.com", "x.com",
+    "facebook.com", "linkedin.com", "threads.net",
 }
 
 # ── Singletons ─────────────────────────────────────────────────
@@ -195,25 +221,26 @@ def _classify_cluster(
         if d.endswith("." + known):
             return cluster
 
+    # Reddit special case — classify by content not domain
+    if "reddit.com" in d:
+        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
+        if any(s in content for s in FOCUS_SIGNALS):
+            return "research"
+        return "social"
+
     # Layer 2: YouTube DOM override
     if d == "youtube.com":
-        content = f"{t} {description} {dom_snippet[:300]}".lower()
-        if any(s in content for s in YOUTUBE_WORK_SIGNALS):
+        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
+        if any(s in content for s in FOCUS_SIGNALS):
             return "research"
         return "entertainment"
 
-    # Layer 3: NLI on real page content
-    content = " ".join(filter(None, [
-        description,
-        dom_snippet[:300],
-        title,
-    ]))
+    # Layer 3: NLI on real content
+    content = " ".join(filter(None, [description, dom_snippet[:300], title]))
     if len(content.strip()) > 20:
         try:
             result = get_classifier()(
-                content[:512],
-                CLUSTER_NAMES,
-                multi_label=False,
+                content[:512], CLUSTER_NAMES, multi_label=False,
             )
             if result["scores"][0] > 0.3:
                 return result["labels"][0]
@@ -227,14 +254,11 @@ def _classify_cluster(
     ]
     if any(x in d for x in search_engines):
         query = t
-        for suffix in ["- brave search", "- google search",
-                       "- bing", "- duckduckgo", "- yahoo"]:
+        for suffix in ["- brave search", "- google search", "- bing", "- duckduckgo"]:
             query = query.replace(suffix, "").strip()
         if query and len(query) > 3:
             try:
-                result = get_classifier()(
-                    query, CLUSTER_NAMES, multi_label=False
-                )
+                result = get_classifier()(query, CLUSTER_NAMES, multi_label=False)
                 if result["scores"][0] > 0.35:
                     return result["labels"][0]
             except Exception:
@@ -255,11 +279,49 @@ def _classify_cluster(
 
     return "reference"
 
-def _is_distraction(cluster: str, domain: str) -> bool:
+
+def _is_distraction(
+    cluster: str,
+    domain: str,
+    title: str = "",
+    dom_snippet: str = "",
+    description: str = "",
+) -> bool:
     d = _normalize_domain(domain)
-    if cluster in {"research", "work", "reference"}:
+    t = title.lower()
+    content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
+
+    # Always distraction — no exceptions
+    if d in ALWAYS_DISTRACTION:
+        return True
+
+    # Never distraction if focus signals present
+    if any(s in content for s in FOCUS_SIGNALS):
         return False
-    return cluster in DISTRACTION_CLUSTERS or d in DISTRACTION_DOMAINS
+
+    # Social platforms — content-aware
+    if d in SOCIAL_DOMAINS or "reddit.com" in d:
+        # Feed/home pages = distraction
+        if any(s in t for s in SHALLOW_SIGNALS):
+            return True
+        # Has substantive content = not distraction
+        if len(dom_snippet) > 300:
+            return False
+        if cluster == "research":
+            return False
+        # Default: give social benefit of doubt if not shallow
+        return len(dom_snippet) < 100
+
+    # YouTube — by cluster
+    if d == "youtube.com":
+        return cluster == "entertainment"
+
+    # Entertainment cluster = distraction
+    if cluster == "entertainment":
+        return True
+
+    return False
+
 
 def _focus_score(
     is_distraction: bool,
@@ -267,15 +329,18 @@ def _focus_score(
     description: str,
     dom_snippet: str,
     time_spent: int = 0,
+    cluster: str = "",
 ) -> float:
     if is_distraction:
         return round(max(0.05, 0.2 - (visit_count * 0.02)), 2)
+
     score = 0.45
-    if description:           score += 0.15
-    if len(dom_snippet) > 200: score += 0.10
-    if visit_count > 1:        score += 0.10
-    if time_spent > 120:       score += 0.10
-    if time_spent > 300:       score += 0.10
+    if description:                          score += 0.15
+    if len(dom_snippet) > 200:               score += 0.10
+    if visit_count > 1:                      score += 0.10
+    if time_spent > 120:                     score += 0.10
+    if time_spent > 300:                     score += 0.10
+    if cluster in {"research", "work"}:      score += 0.05
     return min(round(score, 2), 1.0)
 
 # ── Main entry point ───────────────────────────────────────────
@@ -297,13 +362,15 @@ def process_tab(tab: dict) -> None:
         if url.startswith("chrome") or url.startswith("about"):
             return
 
-        cluster     = _classify_cluster(title, domain, description, dom_snippet)
-        distraction = _is_distraction(cluster, domain)
-        point_id    = int(hashlib.md5(url.encode()).hexdigest(), 16) % (2**63)
+        cluster = _classify_cluster(title, domain, description, dom_snippet)
+        distraction = _is_distraction(
+            cluster, domain, title, dom_snippet, description
+        )
 
-        # Check existing for dedup + visit count
+        point_id    = int(hashlib.md5(url.encode()).hexdigest(), 16) % (2**63)
         visit_count = 1
         existing_time = 0
+
         try:
             existing = get_qdrant().retrieve(
                 collection_name=COLLECTION_NAME,
@@ -316,9 +383,11 @@ def process_tab(tab: dict) -> None:
         except Exception:
             pass
 
-        focus = _focus_score(distraction, visit_count, description, dom_snippet, existing_time)
+        focus = _focus_score(
+            distraction, visit_count, description,
+            dom_snippet, existing_time, cluster
+        )
 
-        # Embed using rich content
         embed_text = " ".join(filter(None, [
             description, dom_snippet[:200], title, domain
         ]))
@@ -352,7 +421,6 @@ def process_tab(tab: dict) -> None:
             points=[PointStruct(id=point_id, vector=vector, payload=payload)],
         )
 
-        # Neo4j
         driver = get_neo4j()
         with driver.session() as s:
             s.run("""
@@ -381,7 +449,7 @@ def process_tab(tab: dict) -> None:
             })
 
         status = "revisit" if visit_count > 1 else "new"
-        print(f"✓ [{status}][{cluster}] {title[:50]} | focus={focus} | distraction={distraction}")
+        print(f"✓ [{status}][{cluster}][distraction={distraction}] {title[:50]}")
 
     except Exception as e:
         print(f"✗ ingest_realtime error: {e}")
