@@ -8,7 +8,8 @@ type Node = {
   node_id: string; title: string; domain: string; cluster: string
   focus_score: number; is_distraction: boolean; is_escape_node: boolean
   days_since_visit: number; session_id: string; depth: number
-  url: string; visit_count: number; time_spent: number; meta_description?: string
+  url: string; visit_count: number; time_spent: number
+  meta_description?: string; tab_id?: string
 }
 type ChainNode = {
   title: string; domain: string; cluster: string; depth: number
@@ -28,6 +29,7 @@ type FocusSummary = {
   avg_focus: number; total_time: number; focus_time: number
   distraction_time: number; total_nodes: number; distraction_nodes: number
 }
+type Preset = { id: string; label: string; description: string }
 
 // ── Colors ─────────────────────────────────────────────────────
 const CLUSTER_COLORS: Record<string, number> = {
@@ -37,83 +39,33 @@ const CLUSTER_COLORS: Record<string, number> = {
   'creative': 0xa78bfa, 'reference': 0x94a3b8, 'communication': 0xe879f9,
   'ai-research': 0x60a5fa, 'programming': 0x34d399, 'general': 0x94a3b8,
 }
-const cc = (c: string) => CLUSTER_COLORS[c] ?? 0x94a3b8
+const cc  = (c: string) => CLUSTER_COLORS[c] ?? 0x94a3b8
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
-const fmt = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s/60)}m` : `${(s/3600).toFixed(1)}h`
+const fmt = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`
 
 type Panel = 'none' | 'rabbit' | 'distraction' | 'focus'
 
-// ── CSS injected once ──────────────────────────────────────────
+// ── Global CSS ─────────────────────────────────────────────────
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; scroll-snap-type: y mandatory; }
+  html { scroll-behavior: smooth; }
   body { background: #020817; font-family: 'Syne', sans-serif; overflow-x: hidden; }
   ::-webkit-scrollbar { width: 3px; }
   ::-webkit-scrollbar-track { background: #020817; }
   ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
-
-  @keyframes pulse-ring {
-    0% { transform: scale(1); opacity: 1; }
-    100% { transform: scale(2.5); opacity: 0; }
-  }
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-12px); }
-  }
-  @keyframes spin-slow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-  @keyframes scroll-bounce {
-    0%, 100% { transform: translateY(0) translateX(-50%); opacity: 0.4; }
-    50% { transform: translateY(8px) translateX(-50%); opacity: 1; }
-  }
-  @keyframes wormhole-spin {
-    from { transform: rotateY(0deg); }
-    to { transform: rotateY(360deg); }
-  }
-  @keyframes crash-shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-4px) rotate(-1deg); }
-    40% { transform: translateX(4px) rotate(1deg); }
-    60% { transform: translateX(-2px); }
-    80% { transform: translateX(2px); }
-  }
-  @keyframes suck-in {
-    0% { transform: scale(1) rotate(0deg); opacity: 1; }
-    100% { transform: scale(0) rotate(720deg); opacity: 0; }
-  }
-  @keyframes dead-pulse {
-    0%, 100% { opacity: 0.15; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(1.05); }
-  }
-  @keyframes gauge-fill {
-    from { stroke-dashoffset: 220; }
-    to { stroke-dashoffset: var(--target); }
-  }
-  @keyframes fade-up {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes star-twinkle {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
-  }
-  .section {
-    height: 100vh; width: 100vw; position: relative;
-    scroll-snap-align: start; overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
-  }
+  #scroll-container { width: 100vw; scroll-snap-type: y mandatory; }
+  .section { width: 100vw !important; height: 100vh; position: relative; scroll-snap-align: start; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .mono { font-family: 'Space Mono', monospace; }
-  .fade-up { animation: fade-up 0.8s ease forwards; }
-  .floating { animation: float 4s ease-in-out infinite; }
-
-  #scroll-container { width: 100vw; }
-  .section { width: 100vw !important; }
+  @keyframes pulse-ring { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(2.5); opacity: 0; } }
+  @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
+  @keyframes spin-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes scroll-bounce { 0%, 100% { transform: translateY(0) translateX(-50%); opacity: 0.4; } 50% { transform: translateY(8px) translateX(-50%); opacity: 1; } }
+  @keyframes dead-pulse { 0%, 100% { opacity: 0.15; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.05); } }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 `
 
-// ── Starfield background (reusable canvas) ─────────────────────
+// ── Star field ─────────────────────────────────────────────────
 function StarField({ id }: { id: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
@@ -129,8 +81,7 @@ function StarField({ id }: { id: string }) {
       ctx.clearRect(0, 0, c.width, c.height)
       stars.forEach(s => {
         s.t += 0.01
-        ctx.beginPath()
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
         ctx.fillStyle = `rgba(148,163,184,${0.2 + Math.sin(s.t) * 0.3})`
         ctx.fill()
       })
@@ -142,11 +93,71 @@ function StarField({ id }: { id: string }) {
   return <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 }
 
-// ── Main App ───────────────────────────────────────────────────
+// ── Referrer Chain (Neo4j) ─────────────────────────────────────
+function ReferrerChain({ nodeId }: { nodeId: string }) {
+  const [chain, setChain] = useState<{
+    how_i_got_here: { title: string; domain: string; cluster: string }[]
+    led_to: { title: string; domain: string; cluster: string }[]
+  } | null>(null)
+
+  useEffect(() => {
+    fetch(`http://localhost:8001/api/v1/graph/referrer-chain/${nodeId}`)
+      .then(r => r.json())
+      .then(d => setChain(d))
+      .catch(() => {})
+  }, [nodeId])
+
+  if (!chain) return null
+  if (chain.how_i_got_here.length === 0 && chain.led_to.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
+      {chain.how_i_got_here.length > 0 && (
+        <>
+          <p style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>
+            ← HOW YOU GOT HERE <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {chain.how_i_got_here.map((n, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: hex(cc(n.cluster)), flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: i === chain.how_i_got_here.length - 1 ? 'white' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {n.title}
+                </span>
+                {i < chain.how_i_got_here.length - 1 && (
+                  <span style={{ fontSize: 9, color: '#1e3a5f', flexShrink: 0 }}>→</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {chain.led_to.length > 0 && (
+        <>
+          <p style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginTop: 10, marginBottom: 8 }}>
+            → LED TO <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {chain.led_to.map((n, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: hex(cc(n.cluster)), flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {n.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Main ───────────────────────────────────────────────────────
 export default function App() {
-  const mountRef    = useRef<HTMLDivElement>(null)
-  const meshesRef   = useRef<THREE.Mesh[]>([])
-  const nodeMapRef  = useRef<Map<THREE.Mesh, Node>>(new Map())
+  const mountRef   = useRef<HTMLDivElement>(null)
+  const meshesRef  = useRef<THREE.Mesh[]>([])
+  const nodeMapRef = useRef<Map<THREE.Mesh, Node>>(new Map())
 
   const [allNodes,      setAllNodes]      = useState<Node[]>([])
   const [nodes,         setNodes]         = useState<Node[]>([])
@@ -162,7 +173,13 @@ export default function App() {
   const [rabbitHoles,   setRabbitHoles]   = useState<RabbitHole[]>([])
   const [distraction,   setDistraction]   = useState<DistractionSummary | null>(null)
   const [focusSummary,  setFocusSummary]  = useState<FocusSummary | null>(null)
-  const [scrollY,       setScrollY]       = useState(0)
+
+  // Onboarding
+  const [profileSet,   setProfileSet]   = useState<boolean | null>(null)
+  const [setupPreset,  setSetupPreset]  = useState('')
+  const [setupTopics,  setSetupTopics]  = useState('')
+  const [presets,      setPresets]      = useState<Preset[]>([])
+  const [submitting,   setSubmitting]   = useState(false)
 
   // Inject CSS
   useEffect(() => {
@@ -172,22 +189,31 @@ export default function App() {
     return () => document.head.removeChild(el)
   }, [])
 
-  // Track scroll
+  // Check onboarding
   useEffect(() => {
-    const el = document.getElementById('scroll-container')
-    if (!el) return
-    const onScroll = () => setScrollY(el.scrollTop)
-    el.addEventListener('scroll', onScroll)
-    return () => el.removeEventListener('scroll', onScroll)
+    fetch(`${API}/onboarding/profile`)
+      .then(r => r.json())
+      .then(d => setProfileSet(d.exists))
+      .catch(() => setProfileSet(true))
+    fetch(`${API}/onboarding/presets`)
+      .then(r => r.json())
+      .then(d => setPresets(d.presets ?? []))
+      .catch(() => {})
   }, [])
 
-  // Fetch nodes
+  // Fetch nodes (auto-refresh every 30s)
   useEffect(() => {
-    fetch(`${API}/api/v1/nodes/all?limit=200`)
-      .then(r => r.json())
-      .then(d => { setAllNodes(d.nodes ?? []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [])
+    if (!profileSet) return
+    const load = () => {
+      fetch(`${API}/api/v1/nodes/all?limit=200`)
+        .then(r => r.json())
+        .then(d => { setAllNodes(d.nodes ?? []); setLoading(false) })
+        .catch(() => setLoading(false))
+    }
+    load()
+    const interval = setInterval(load, 30000)
+    return () => clearInterval(interval)
+  }, [profileSet])
 
   // Filter
   useEffect(() => {
@@ -197,17 +223,7 @@ export default function App() {
     setNodes(f)
   }, [allNodes, activeCluster, maxDays])
 
-  // Fetch insights
-  useEffect(() => {
-    if (panel === 'rabbit' && rabbitHoles.length === 0)
-      fetch(`${API}/api/v1/insights/rabbit-holes`).then(r => r.json()).then(d => setRabbitHoles(d.rabbit_holes ?? []))
-    if (panel === 'distraction' && !distraction)
-      fetch(`${API}/api/v1/insights/distraction-summary`).then(r => r.json()).then(d => setDistraction(d))
-    if (panel === 'focus' && !focusSummary)
-      fetch(`${API}/api/v1/insights/focus-summary`).then(r => r.json()).then(d => setFocusSummary(d))
-  }, [panel])
-
-  // Preload all insights for scroll sections
+  // Preload insights
   useEffect(() => {
     if (allNodes.length === 0) return
     fetch(`${API}/api/v1/insights/rabbit-holes`).then(r => r.json()).then(d => setRabbitHoles(d.rabbit_holes ?? []))
@@ -215,23 +231,20 @@ export default function App() {
     fetch(`${API}/api/v1/insights/focus-summary`).then(r => r.json()).then(d => setFocusSummary(d))
   }, [allNodes.length])
 
-  // Highlight effect
+  // Highlight meshes
   useEffect(() => {
     meshesRef.current.forEach(mesh => {
-      const node = nodeMapRef.current.get(mesh)
-      if (!node) return
+      const node = nodeMapRef.current.get(mesh); if (!node) return
       const mat = mesh.material as THREE.MeshStandardMaterial
       if (highlightUrls.size === 0) {
         mat.emissiveIntensity = node.is_escape_node ? 1.0 : 0.3
         mat.opacity = node.days_since_visit > 21 ? 0.2 : 1.0
         mat.color.setHex(cc(node.cluster))
       } else if (highlightUrls.has(node.url)) {
-        mat.emissiveIntensity = 2.5
-        mat.opacity = 1.0
+        mat.emissiveIntensity = 2.5; mat.opacity = 1.0
         mat.color.setHex(0xffffff)
       } else {
-        mat.emissiveIntensity = 0.05
-        mat.opacity = 0.08
+        mat.emissiveIntensity = 0.05; mat.opacity = 0.08
       }
     })
   }, [highlightUrls])
@@ -252,9 +265,24 @@ export default function App() {
     setSearching(false)
   }, [])
 
+  // Onboarding submit
+  async function submitProfile() {
+    setSubmitting(true)
+    const topics = setupTopics.split(',').map(t => t.trim()).filter(Boolean)
+    try {
+      await fetch(`${API}/onboarding/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: setupPreset, topics }),
+      })
+    } catch (e) { console.error(e) }
+    setSubmitting(false)
+    setProfileSet(true)
+  }
+
   const clusters = Array.from(new Set(allNodes.map(n => n.cluster))).sort()
 
-  // ── Three.js scene ──────────────────────────────────────────
+  // Three.js
   useEffect(() => {
     const el = mountRef.current
     if (!el || nodes.length === 0) return
@@ -272,25 +300,18 @@ export default function App() {
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5))
     const pt = new THREE.PointLight(0x60a5fa, 3, 300)
-    pt.position.set(0, 50, 50)
-    scene.add(pt)
+    pt.position.set(0, 50, 50); scene.add(pt)
     const pt2 = new THREE.PointLight(0xf87171, 2, 200)
-    pt2.position.set(-50, -30, 30)
-    scene.add(pt2)
+    pt2.position.set(-50, -30, 30); scene.add(pt2)
 
-    // Starfield particles
+    // Background stars
     const starGeo = new THREE.BufferGeometry()
-    const starVerts = []
+    const starVerts: number[] = []
     for (let i = 0; i < 2000; i++) {
-      starVerts.push(
-        (Math.random() - 0.5) * 400,
-        (Math.random() - 0.5) * 400,
-        (Math.random() - 0.5) * 400,
-      )
+      starVerts.push((Math.random() - 0.5) * 400, (Math.random() - 0.5) * 400, (Math.random() - 0.5) * 400)
     }
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3))
-    const starMat = new THREE.PointsMaterial({ color: 0x334155, size: 0.3 })
-    scene.add(new THREE.Points(starGeo, starMat))
+    scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0x334155, size: 0.3 })))
 
     const meshes: THREE.Mesh[] = []
     const nodeMap = new Map<THREE.Mesh, Node>()
@@ -304,36 +325,25 @@ export default function App() {
       const x = r * Math.sin(phi) * Math.cos(theta)
       const y = r * Math.sin(phi) * Math.sin(theta)
       const z = r * Math.cos(phi)
-
       const size = 0.35 + node.focus_score * 0.9 + Math.min((node.time_spent ?? 0) / 500, 0.7)
       const color = cc(node.cluster)
 
-      // Glow ring for distractions
       if (node.is_distraction) {
         const ringGeo = new THREE.RingGeometry(size * 1.4, size * 1.7, 32)
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0xf87171, transparent: true, opacity: 0.15, side: THREE.DoubleSide
-        })
-        const ring = new THREE.Mesh(ringGeo, ringMat)
-        ring.position.set(x, y, z)
-        ring.lookAt(camera.position)
-        scene.add(ring)
+        const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.15, side: THREE.DoubleSide }))
+        ring.position.set(x, y, z); ring.lookAt(camera.position); scene.add(ring)
       }
 
       const geo = new THREE.SphereGeometry(size, 20, 20)
       const mat = new THREE.MeshStandardMaterial({
         color, emissive: color,
         emissiveIntensity: node.is_escape_node ? 1.2 : node.is_distraction ? 0.5 : 0.25,
-        roughness: 0.2, metalness: 0.4,
-        transparent: true,
+        roughness: 0.2, metalness: 0.4, transparent: true,
         opacity: node.days_since_visit > 21 ? 0.2 : 1.0,
       })
-
       const mesh = new THREE.Mesh(geo, mat)
-      mesh.position.set(x, y, z)
-      scene.add(mesh)
-      meshes.push(mesh)
-      nodeMap.set(mesh, node)
+      mesh.position.set(x, y, z); scene.add(mesh)
+      meshes.push(mesh); nodeMap.set(mesh, node)
     })
 
     // Session edges
@@ -346,13 +356,10 @@ export default function App() {
     sessionGroups.forEach(positions => {
       if (positions.length < 2) return
       const geo = new THREE.BufferGeometry().setFromPoints(positions)
-      const mat = new THREE.LineBasicMaterial({ color: 0x1e3a5f, transparent: true, opacity: 0.3 })
-      scene.add(new THREE.Line(geo, mat))
+      scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x1e3a5f, transparent: true, opacity: 0.3 })))
     })
 
-    // Interaction
     const raycaster = new THREE.Raycaster()
-    raycaster.params.Points!.threshold = 0.5
     const mouse = new THREE.Vector2()
     let hoveredMesh: THREE.Mesh | null = null
     let dragging = false, lastX = 0, lastY = 0
@@ -383,8 +390,7 @@ export default function App() {
             highlightUrls.size > 0 ? (highlightUrls.has(n.url) ? 2.5 : 0.05) : (n.is_escape_node ? 1.2 : 0.25)
           hoveredMesh = null
         }
-        setHovered(null)
-        document.body.style.cursor = 'default'
+        setHovered(null); document.body.style.cursor = 'default'
       }
       if (dragging) {
         scene.rotation.y += (e.clientX - lastX) * 0.004
@@ -395,15 +401,108 @@ export default function App() {
 
     function onMouseDown(e: MouseEvent) { dragging = true; lastX = e.clientX; lastY = e.clientY }
     function onMouseUp()   { dragging = false }
-    function onClick()     { if (hoveredMesh) setSelected(s => s === nodeMap.get(hoveredMesh!) ? null : nodeMap.get(hoveredMesh!) ?? null) }
+    function onClick() {
+      if (!hoveredMesh) {
+        setSelected(null)
+        setHighlightUrls(new Set())
+        scene.children.filter(c => (c as any).__chainLine).forEach(l => scene.remove(l))
+        return
+      }
+      const node = nodeMap.get(hoveredMesh!)
+      if (!node) return
+      setSelected(s => s === node ? null : node)
+
+      fetch(`http://localhost:8001/api/v1/graph/referrer-chain/${node.node_id}`)
+        .then(r => r.json())
+        .then(data => {
+          const allInChain = [
+            ...(data.how_i_got_here ?? []),
+            { url: node.url },
+            ...(data.led_to ?? []),
+          ]
+          const urls = new Set<string>(
+            allInChain.map((n: { url?: string }) => n.url ?? '').filter(Boolean)
+          )
+          if (urls.size > 1) {
+            setHighlightUrls(urls)
+            // Remove old chain lines
+            scene.children
+              .filter(c => (c as any).__chainLine)
+              .forEach(l => scene.remove(l))
+            // Build ordered URL list
+            const orderedUrls = [
+              ...(data.how_i_got_here ?? []).map((n: { url: string }) => n.url),
+              node.url,
+              ...(data.led_to ?? []).map((n: { url: string }) => n.url),
+            ]
+            // Map URLs to positions
+            const positions: THREE.Vector3[] = []
+            orderedUrls.forEach((url: string) => {
+              meshes.forEach(m => {
+                const n = nodeMap.get(m)
+                if (n?.url === url) positions.push(m.position.clone())
+              })
+            })
+            if (positions.length > 1) {
+              const geo = new THREE.BufferGeometry().setFromPoints(positions)
+              const mat = new THREE.LineBasicMaterial({
+                color: 0x60a5fa, transparent: true, opacity: 0.9,
+              })
+              const line = new THREE.Line(geo, mat)
+              ;(line as any).__chainLine = true
+              scene.add(line)
+            }
+          } else {
+            // No Neo4j chain — show temporal neighbors (tab before + after)
+            scene.children.filter(c => (c as any).__chainLine).forEach(l => scene.remove(l))
+            fetch(`http://localhost:8001/api/v1/graph/temporal-neighbors/${node.node_id}`)
+              .then(r => r.json())
+              .then(data => {
+                const before = data.before
+                const after  = data.after
+                if (!before && !after) {
+                  setHighlightUrls(new Set())
+                  return
+                }
+                const urls = new Set<string>([node.url])
+                if (before?.url) urls.add(before.url)
+                if (after?.url)  urls.add(after.url)
+                setHighlightUrls(urls)
+
+                const ordered = [before, { url: node.url }, after]
+                  .filter(Boolean) as { url: string }[]
+
+                for (let i = 0; i < ordered.length - 1; i++) {
+                  let posA: THREE.Vector3 | null = null
+                  let posB: THREE.Vector3 | null = null
+                  meshes.forEach(m => {
+                    const n = nodeMap.get(m)
+                    if (n?.url === ordered[i].url)   posA = m.position.clone()
+                    if (n?.url === ordered[i+1].url) posB = m.position.clone()
+                  })
+                  if (posA && posB) {
+                    const geo = new THREE.BufferGeometry().setFromPoints([posA, posB])
+                    const mat = new THREE.LineBasicMaterial({
+                      color: 0x34d399, transparent: true, opacity: 0.85,
+                    })
+                    const line = new THREE.Line(geo, mat)
+                    ;(line as any).__chainLine = true
+                    scene.add(line)
+                  }
+                }
+              })
+              .catch(() => { setHighlightUrls(new Set()) })
+          }
+        })
+        .catch(() => {})
+    }
     function onWheel(e: WheelEvent) {
       camera.position.z = Math.max(20, Math.min(150, camera.position.z + e.deltaY * 0.04))
     }
     function onResize() {
-      const W2 = el.clientWidth, H2 = el.clientHeight
-      camera.aspect = W2 / H2
+      camera.aspect = el.clientWidth / el.clientHeight
       camera.updateProjectionMatrix()
-      renderer.setSize(W2, H2)
+      renderer.setSize(el.clientWidth, el.clientHeight)
     }
 
     el.addEventListener('mousemove', onMouseMove)
@@ -415,16 +514,13 @@ export default function App() {
 
     let raf: number, t = 0
     function animate() {
-      raf = requestAnimationFrame(animate)
-      t += 0.003
+      raf = requestAnimationFrame(animate); t += 0.003
       if (!dragging) {
         scene.rotation.y += 0.001
-        // Pulse distraction nodes
         meshes.forEach(mesh => {
           const n = nodeMap.get(mesh)
           if (n?.is_distraction) {
-            const mat = mesh.material as THREE.MeshStandardMaterial
-            mat.emissiveIntensity = 0.4 + Math.sin(t * 3) * 0.2
+            (mesh.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.4 + Math.sin(t * 3) * 0.2
           }
         })
       }
@@ -450,20 +546,119 @@ export default function App() {
     border: active ? `1px solid ${color}44` : '1px solid #1e293b',
     cursor: 'pointer', fontFamily: "'Space Mono', monospace",
     background: active ? `${color}11` : 'transparent',
-    color: active ? color : '#475569',
-    transition: 'all 0.2s',
+    color: active ? color : '#475569', transition: 'all 0.2s',
   } as React.CSSProperties)
 
   const deepestHole = rabbitHoles[0]
 
+  // ── Onboarding screen ──────────────────────────────────────
+  if (profileSet === false) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: '#020817', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Background stars */}
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+          {[...Array(80)].map((_, i) => (
+            <div key={i} style={{
+              position: 'absolute',
+              left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`,
+              width: Math.random() * 2 + 1, height: Math.random() * 2 + 1,
+              background: 'white', borderRadius: '50%',
+              opacity: Math.random() * 0.5 + 0.1,
+            }} />
+          ))}
+        </div>
+
+        <div style={{ position: 'relative', zIndex: 10, width: 500, background: 'rgba(10,18,36,0.95)', border: '1px solid #1e293b', borderRadius: 8, padding: 40 }}>
+          <div style={{ marginBottom: 32 }}>
+            <h1 style={{ color: 'white', fontSize: 26, fontWeight: 800, fontFamily: "'Syne', sans-serif", marginBottom: 8 }}>
+              TAB CONSTELLATION
+            </h1>
+            <p style={{ color: '#475569', fontSize: 12, fontFamily: "'Space Mono', monospace", lineHeight: 1.6 }}>
+              Your browsing history as an immersive 3D cognitive map.<br />
+              Tell us about yourself for personalized classification.
+            </p>
+          </div>
+
+          <p style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 12 }}>
+            WHAT BEST DESCRIBES YOU?
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 28 }}>
+            {[...presets, { id: '', label: '🌐 General / Other', description: 'Everything else' }].map(p => (
+              <button key={p.id} onClick={() => setSetupPreset(p.id)} style={{
+                padding: '10px 14px',
+                border: `1px solid ${setupPreset === p.id ? '#60a5fa' : '#1e293b'}`,
+                background: setupPreset === p.id ? '#60a5fa11' : 'transparent',
+                color: setupPreset === p.id ? '#60a5fa' : '#64748b',
+                borderRadius: 4, cursor: 'pointer', fontSize: 12,
+                fontFamily: "'Syne', sans-serif", textAlign: 'left',
+                transition: 'all 0.15s',
+              }}>
+                <div style={{ fontWeight: 600 }}>{p.label}</div>
+                <div style={{ fontSize: 10, color: '#334155', marginTop: 2, fontFamily: "'Space Mono', monospace" }}>{p.description}</div>
+              </button>
+            ))}
+          </div>
+
+          <p style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>
+            TOPICS YOU WORK WITH
+          </p>
+          <input
+            type="text"
+            placeholder="e.g. machine learning, golang, qdrant, react"
+            value={setupTopics}
+            onChange={e => setSetupTopics(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submitProfile()}
+            style={{
+              width: '100%', padding: '10px 14px',
+              background: '#0f172a', border: '1px solid #1e293b',
+              borderRadius: 4, color: 'white', fontSize: 12,
+              marginBottom: 8, fontFamily: "'Space Mono', monospace", outline: 'none',
+            }}
+          />
+          <p style={{ fontSize: 10, color: '#1e293b', fontFamily: "'Space Mono', monospace", marginBottom: 24 }}>
+            Comma separated — used to add domain rules specific to your work
+          </p>
+
+          <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button onClick={submitProfile} disabled={submitting} style={{
+              width: '100%', padding: '13px',
+              background: submitting ? '#1e293b' : '#60a5fa',
+              border: 'none', borderRadius: 4,
+              color: submitting ? '#475569' : '#020817',
+              fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
+              fontFamily: "'Syne', sans-serif", transition: 'all 0.2s',
+            }}>
+              {submitting ? 'CALIBRATING...' : 'LAUNCH CONSTELLATION →'}
+            </button>
+            <button onClick={() => setProfileSet(true)} style={{
+              width: '100%', padding: '10px',
+              background: 'transparent', border: '1px solid #1e293b',
+              borderRadius: 4, color: '#334155', fontSize: 11,
+              cursor: 'pointer', fontFamily: "'Space Mono', monospace",
+            }}>
+              skip — use default classification
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Loading ────────────────────────────────────────────────
+  if (profileSet === null) {
+    return (
+      <div style={{ width: '100vw', height: '100vh', background: '#020817', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 32, height: 32, border: '2px solid #1e293b', borderTop: '2px solid #60a5fa', borderRadius: '50%', animation: 'spin-slow 1s linear infinite' }} />
+      </div>
+    )
+  }
+
+  // ── Main app ───────────────────────────────────────────────
   return (
     <div id="scroll-container" style={{ height: '100vh', overflowY: 'scroll', scrollSnapType: 'y mandatory' }}>
 
-      {/* ═══════════════════════════════════════════════════════
-          SECTION 1: THE CONSTELLATION
-      ═══════════════════════════════════════════════════════ */}
+      {/* ═══ SECTION 1: CONSTELLATION ═══ */}
       <div className="section" style={{ background: '#020817' }}>
-        {/* Three.js canvas */}
         <div ref={mountRef} style={{ position: 'absolute', inset: 0 }} />
 
         {/* Top bar */}
@@ -474,9 +669,7 @@ export default function App() {
                 <h1 style={{ color: 'white', fontSize: 18, fontWeight: 800, letterSpacing: '-0.5px', fontFamily: "'Syne', sans-serif" }}>
                   TAB CONSTELLATION
                 </h1>
-                <span style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace" }}>
-                  {nodes.length} nodes
-                </span>
+                <span style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace" }}>{nodes.length} nodes</span>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
@@ -485,15 +678,12 @@ export default function App() {
                   onKeyDown={e => e.key === 'Enter' && runSearch(searchQuery)}
                   style={{ width: 200, fontSize: 11, padding: '5px 10px', background: 'rgba(15,23,42,0.8)', border: '1px solid #1e293b', borderRadius: 4, color: 'white', outline: 'none', fontFamily: "'Space Mono', monospace" }}
                 />
-                <button onClick={() => runSearch(searchQuery)} disabled={searching}
-                  style={{ ...btnStyle(false), padding: '5px 10px' }}>
+                <button onClick={() => runSearch(searchQuery)} disabled={searching} style={{ ...btnStyle(false), padding: '5px 10px' }}>
                   {searching ? '...' : 'SCAN'}
                 </button>
                 {highlightUrls.size > 0 && (
                   <button onClick={() => { setSearchQuery(''); setHighlightUrls(new Set()) }}
-                    style={{ ...btnStyle(false), color: '#f87171', borderColor: '#f8717144' }}>
-                    CLR
-                  </button>
+                    style={{ ...btnStyle(false), color: '#f87171', borderColor: '#f8717144' }}>CLR</button>
                 )}
               </div>
               {highlightUrls.size > 0 && (
@@ -503,7 +693,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Cluster filters */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 500 }}>
               <button onClick={() => setActiveCluster(null)} style={btnStyle(activeCluster === null, 'white')}>ALL</button>
               {clusters.map(c => (
@@ -516,7 +705,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Controls row */}
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ color: '#1e3a5f', fontSize: 10, fontFamily: "'Space Mono', monospace" }}>RANGE</span>
             <input type="range" min={1} max={90} value={maxDays}
@@ -529,22 +717,26 @@ export default function App() {
                   {icon} {p.toUpperCase()}
                 </button>
               ))}
+              <button onClick={() => setProfileSet(false)}
+                style={{ ...btnStyle(false, '#a78bfa'), padding: '4px 10px' }}>
+                ⚙ PROFILE
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Loading */}
+        {/* Loading spinner */}
         {loading && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-            <div style={{ width: 40, height: 40, border: '2px solid #1e3a5f', borderTop: '2px solid #60a5fa', borderRadius: '50%', animation: 'spin-slow 1s linear infinite' }} />
+            <div style={{ width: 40, height: 40, border: '2px solid #1e293b', borderTop: '2px solid #60a5fa', borderRadius: '50%', animation: 'spin-slow 1s linear infinite' }} />
             <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>INITIALIZING CONSTELLATION...</p>
           </div>
         )}
 
         {/* Hover tooltip */}
         {hovered && !selected && (
-          <div style={{ position: 'absolute', bottom: 80, left: '50%', transform: 'translateX(-50%)', background: 'rgba(2,8,23,0.95)', border: '1px solid #1e293b', borderRadius: 4, padding: '10px 16px', color: 'white', fontSize: 12, textAlign: 'center', maxWidth: 360, zIndex: 20, pointerEvents: 'none', fontFamily: "'Syne', sans-serif" }}>
-            <p style={{ fontWeight: 600, margin: 0 }}>{hovered.title}</p>
+          <div style={{ position: 'absolute', bottom: 80, left: '50%', transform: 'translateX(-50%)', background: 'rgba(2,8,23,0.95)', border: '1px solid #1e293b', borderRadius: 4, padding: '10px 16px', color: 'white', fontSize: 12, textAlign: 'center', maxWidth: 360, zIndex: 20, pointerEvents: 'none' }}>
+            <p style={{ fontWeight: 600, margin: 0, fontFamily: "'Syne', sans-serif" }}>{hovered.title}</p>
             <p style={{ margin: '3px 0 0', color: '#475569', fontSize: 10, fontFamily: "'Space Mono', monospace" }}>
               {hovered.domain}
               <span style={{ color: hex(cc(hovered.cluster)), margin: '0 6px' }}>●</span>
@@ -573,7 +765,7 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
               {([
                 ['FOCUS', `${(selected.focus_score * 100).toFixed(0)}%`],
-                ['TIME', fmt(selected.time_spent ?? 0)],
+                ['TIME',  fmt(selected.time_spent ?? 0)],
                 ['VISITS', String(selected.visit_count ?? 1)],
                 ['DEPTH', String(selected.depth)],
                 ['DISTRACTION', selected.is_distraction ? '⚠ YES' : '✓ NO'],
@@ -586,13 +778,16 @@ export default function App() {
               ))}
             </div>
             <a href={selected.url} target="_blank" rel="noreferrer"
-              style={{ display: 'block', color: '#60a5fa', fontSize: 10, textDecoration: 'none', fontFamily: "'Space Mono', monospace", opacity: 0.7 }}>
-              ↗ {selected.url.slice(0, 50)}{selected.url.length > 50 ? '…' : ''}
+            style={{ display: 'block', color: '#60a5fa', fontSize: 10, 
+                    textDecoration: 'none', fontFamily: "'Space Mono', monospace", 
+                    opacity: 0.7 }}>
+            ↗ {selected.url.slice(0, 50)}{selected.url.length > 50 ? '…' : ''}
             </a>
+            <ReferrerChain nodeId={selected.node_id} />
           </div>
         )}
 
-        {/* Insight panels */}
+        {/* Focus panel */}
         {panel === 'focus' && focusSummary && (
           <div style={{ position: 'absolute', top: 120, left: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -606,12 +801,12 @@ export default function App() {
               <div style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", marginTop: 4 }}>AVG FOCUS SCORE</div>
             </div>
             <div style={{ height: 4, background: '#0a1224', borderRadius: 99, marginBottom: 16, overflow: 'hidden' }}>
-              <div style={{ height: 4, background: 'linear-gradient(to right, #34d399, #60a5fa)', width: `${focusSummary.avg_focus * 100}%`, transition: 'width 1s ease' }} />
+              <div style={{ height: 4, background: 'linear-gradient(to right, #34d399, #60a5fa)', width: `${focusSummary.avg_focus * 100}%` }} />
             </div>
             {([
               ['TOTAL TIME', fmt(focusSummary.total_time)],
               ['FOCUS TIME', fmt(focusSummary.focus_time)],
-              ['LOST TO DISTRACTIONS', fmt(focusSummary.distraction_time)],
+              ['TIME LOST', fmt(focusSummary.distraction_time)],
             ] as [string, string][]).map(([l, v]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #0a1224' }}>
                 <span style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{l}</span>
@@ -621,6 +816,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Rabbit hole panel */}
         {panel === 'rabbit' && (
           <div style={{ position: 'absolute', top: 120, left: 14, width: 300, maxHeight: 'calc(100vh - 150px)', background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -663,6 +859,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Distraction panel */}
         {panel === 'distraction' && distraction && (
           <div style={{ position: 'absolute', top: 120, left: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -687,7 +884,7 @@ export default function App() {
                   <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>{fmt(d.time_spent)}</span>
                 </div>
                 <div style={{ height: 2, background: '#0a1224' }}>
-                  <div style={{ height: 2, background: `linear-gradient(to right, #f87171, #f97316)`, width: `${(d.time_spent / (distraction.by_domain[0]?.time_spent || 1)) * 100}%`, transition: 'width 1s ease' }} />
+                  <div style={{ height: 2, background: 'linear-gradient(to right, #f87171, #f97316)', width: `${(d.time_spent / (distraction.by_domain[0]?.time_spent || 1)) * 100}%` }} />
                 </div>
               </div>
             ))}
@@ -705,100 +902,56 @@ export default function App() {
         )}
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          SECTION 2: THE WORMHOLE — Rabbit Hole Visualizer
-      ═══════════════════════════════════════════════════════ */}
+      {/* ═══ SECTION 2: THE WORMHOLE ═══ */}
       <div className="section" style={{ background: 'radial-gradient(ellipse at center, #0a0a2e 0%, #020817 70%)' }}>
         <StarField id="wormhole-stars" />
-
-        {/* Wormhole rings */}
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
           {[...Array(8)].map((_, i) => (
-            <div key={i} style={{
-              position: 'absolute',
-              width: 80 + i * 80, height: 80 + i * 80,
-              border: `1px solid rgba(96,165,250,${0.15 - i * 0.015})`,
-              borderRadius: '50%',
-              animation: `spin-slow ${8 + i * 3}s linear infinite ${i % 2 === 0 ? '' : 'reverse'}`,
-            }} />
+            <div key={i} style={{ position: 'absolute', width: 80 + i * 80, height: 80 + i * 80, border: `1px solid rgba(96,165,250,${0.15 - i * 0.015})`, borderRadius: '50%', animation: `spin-slow ${8 + i * 3}s linear infinite ${i % 2 === 0 ? '' : 'reverse'}` }} />
           ))}
-          <div style={{
-            width: 60, height: 60,
-            background: 'radial-gradient(circle, #60a5fa44 0%, transparent 70%)',
-            borderRadius: '50%',
-            boxShadow: '0 0 40px #60a5fa44, 0 0 80px #60a5fa22',
-          }} />
+          <div style={{ width: 60, height: 60, background: 'radial-gradient(circle, #60a5fa44 0%, transparent 70%)', borderRadius: '50%', boxShadow: '0 0 40px #60a5fa44' }} />
         </div>
 
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 900, width: '90%', display: 'flex', gap: 60, alignItems: 'center' }}>
-          {/* Left: title */}
           <div style={{ flex: '0 0 280px' }}>
-            <div style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>
-              RABBIT HOLE DETECTED
-            </div>
-            <h2 style={{ fontSize: 42, fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: 16, fontFamily: "'Syne', sans-serif" }}>
-              THE<br />WORM<br />HOLE
-            </h2>
-            {deepestHole && (
+            <div style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>RABBIT HOLE DETECTED</div>
+            <h2 style={{ fontSize: 42, fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: 16, fontFamily: "'Syne', sans-serif" }}>THE<br />WORM<br />HOLE</h2>
+            {deepestHole ? (
               <>
                 <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
-                  <div>
-                    <div style={{ fontSize: 32, fontWeight: 800, color: '#60a5fa', fontFamily: "'Syne', sans-serif" }}>{deepestHole.max_depth}</div>
-                    <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>DEPTH</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 32, fontWeight: 800, color: '#60a5fa', fontFamily: "'Syne', sans-serif" }}>{fmt(deepestHole.total_time)}</div>
-                    <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>LOST</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 32, fontWeight: 800, color: '#60a5fa', fontFamily: "'Syne', sans-serif" }}>{deepestHole.node_count}</div>
-                    <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>HOPS</div>
-                  </div>
+                  {[['DEPTH', deepestHole.max_depth], ['LOST', fmt(deepestHole.total_time)], ['HOPS', deepestHole.node_count]].map(([l, v]) => (
+                    <div key={String(l)}>
+                      <div style={{ fontSize: 32, fontWeight: 800, color: '#60a5fa', fontFamily: "'Syne', sans-serif" }}>{v}</div>
+                      <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{l}</div>
+                    </div>
+                  ))}
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.origin_cluster))}66`, color: hex(cc(deepestHole.origin_cluster)), fontFamily: "'Space Mono', monospace" }}>
-                    {deepestHole.origin_cluster.toUpperCase()}
-                  </span>
+                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.origin_cluster))}66`, color: hex(cc(deepestHole.origin_cluster)), fontFamily: "'Space Mono', monospace" }}>{deepestHole.origin_cluster.toUpperCase()}</span>
                   <span style={{ color: '#1e3a5f', fontSize: 12 }}>{'→'.repeat(Math.min(deepestHole.max_depth, 5))}</span>
-                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.exit_cluster))}66`, color: hex(cc(deepestHole.exit_cluster)), fontFamily: "'Space Mono', monospace" }}>
-                    {deepestHole.exit_cluster.toUpperCase()}
-                  </span>
+                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.exit_cluster))}66`, color: hex(cc(deepestHole.exit_cluster)), fontFamily: "'Space Mono', monospace" }}>{deepestHole.exit_cluster.toUpperCase()}</span>
                 </div>
               </>
-            )}
-            {!deepestHole && (
+            ) : (
               <p style={{ color: '#334155', fontSize: 12, fontFamily: "'Space Mono', monospace" }}>BROWSE MORE TO DETECT RABBIT HOLES</p>
             )}
           </div>
 
-          {/* Right: chain visualization */}
           {deepestHole && (
             <div style={{ flex: 1, maxHeight: '70vh', overflowY: 'auto' }}>
               <div style={{ position: 'relative', paddingLeft: 20 }}>
-                {/* Vertical line */}
                 <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'linear-gradient(to bottom, #60a5fa, #f87171)' }} />
-
                 {deepestHole.chain.map((node, i) => (
                   <div key={i} style={{ position: 'relative', marginBottom: 16, paddingLeft: 24, animation: `fade-up 0.5s ease ${i * 0.08}s both` }}>
-                    {/* Node dot */}
-                    <div style={{
-                      position: 'absolute', left: 0, top: 4,
-                      width: 14, height: 14, borderRadius: '50%',
-                      background: node.is_distraction ? '#f87171' : hex(cc(node.cluster)),
-                      boxShadow: `0 0 ${node.is_distraction ? 10 : 6}px ${node.is_distraction ? '#f87171' : hex(cc(node.cluster))}`,
-                      border: '2px solid #020817',
-                    }} />
-
+                    <div style={{ position: 'absolute', left: 0, top: 4, width: 14, height: 14, borderRadius: '50%', background: node.is_distraction ? '#f87171' : hex(cc(node.cluster)), boxShadow: `0 0 ${node.is_distraction ? 10 : 6}px ${node.is_distraction ? '#f87171' : hex(cc(node.cluster))}`, border: '2px solid #020817' }} />
                     <div style={{ background: node.is_distraction ? 'rgba(248,113,113,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${node.is_distraction ? '#f8717122' : '#1e293b'}`, padding: '8px 12px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: node.is_distraction ? '#f87171' : 'white', flex: 1, paddingRight: 8 }}>
                           {node.title.length > 50 ? node.title.slice(0, 50) + '…' : node.title}
                         </p>
-                        {node.time_spent > 0 && (
-                          <span style={{ fontSize: 9, color: '#475569', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>{fmt(node.time_spent)}</span>
-                        )}
+                        {node.time_spent > 0 && <span style={{ fontSize: 9, color: '#475569', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>{fmt(node.time_spent)}</span>}
                       </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                         <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{node.domain}</span>
                         <span style={{ fontSize: 9, color: hex(cc(node.cluster)), fontFamily: "'Space Mono', monospace" }}>● {node.cluster}</span>
                         {node.is_distraction && <span style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace" }}>⚠ DISTRACTION</span>}
@@ -812,84 +965,22 @@ export default function App() {
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          SECTION 3: THE CRASH SITE — Distraction Fingerprint
-      ═══════════════════════════════════════════════════════ */}
+      {/* ═══ SECTION 3: THE CRASH SITE ═══ */}
       <div className="section" style={{ background: 'radial-gradient(ellipse at 30% 50%, #1a0a0a 0%, #020817 60%)' }}>
         <StarField id="crash-stars" />
-
-        {/* Explosion particles */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           {[...Array(20)].map((_, i) => {
             const angle = (i / 20) * 360
-            const dist = 150 + Math.random() * 200
+            const dist  = 150 + Math.random() * 200
             return (
-              <div key={i} style={{
-                position: 'absolute',
-                left: '50%', top: '50%',
-                width: Math.random() * 3 + 1,
-                height: Math.random() * 3 + 1,
-                background: ['#f87171', '#f97316', '#fbbf24'][i % 3],
-                borderRadius: '50%',
-                transform: `translate(-50%, -50%) rotate(${angle}deg) translateX(${dist}px)`,
-                opacity: Math.random() * 0.6 + 0.1,
-                animation: `pulse-ring ${2 + Math.random() * 3}s ease-in-out infinite ${Math.random() * 2}s`,
-              }} />
+              <div key={i} style={{ position: 'absolute', left: '50%', top: '50%', width: Math.random() * 3 + 1, height: Math.random() * 3 + 1, background: ['#f87171', '#f97316', '#fbbf24'][i % 3], borderRadius: '50%', transform: `translate(-50%, -50%) rotate(${angle}deg) translateX(${dist}px)`, opacity: Math.random() * 0.6 + 0.1, animation: `pulse-ring ${2 + Math.random() * 3}s ease-in-out infinite ${Math.random() * 2}s` }} />
             )
           })}
         </div>
 
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 900, width: '90%', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 60, alignItems: 'center' }}>
-          {/* Right: viz */}
-          <div>
-            {distraction && (
-              <>
-                {/* Central crash indicator */}
-                <div style={{ textAlign: 'center', marginBottom: 32 }}>
-                  <div style={{
-                    width: 120, height: 120, borderRadius: '50%', margin: '0 auto 16px',
-                    background: 'radial-gradient(circle, #f8717133 0%, transparent 70%)',
-                    border: '2px solid #f8717144',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    animation: 'pulse-ring 3s ease-in-out infinite',
-                    boxShadow: '0 0 40px #f8717122',
-                  }}>
-                    <div style={{ fontSize: 36, fontWeight: 800, color: '#f87171', fontFamily: "'Syne', sans-serif" }}>
-                      {fmt(distraction.time_lost)}
-                    </div>
-                  </div>
-                  <p style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>TOTAL TIME LOST</p>
-                </div>
-
-                {/* Domain bars */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {distraction.by_domain.slice(0, 5).map((d, i) => (
-                    <div key={i}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{d.domain}</span>
-                        <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>{fmt(d.time_spent)} · {d.visits}×</span>
-                      </div>
-                      <div style={{ height: 3, background: '#0a1224', overflow: 'hidden' }}>
-                        <div style={{
-                          height: 3,
-                          background: `linear-gradient(to right, #f87171, #f97316)`,
-                          width: `${(d.time_spent / (distraction.by_domain[0]?.time_spent || 1)) * 100}%`,
-                          boxShadow: '0 0 8px #f87171',
-                          transition: 'width 1.5s ease',
-                        }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Left: title */}
           <div style={{ order: -1 }}>
-            <div style={{ fontSize: 10, color: '#f87171', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12, opacity: 0.7 }}>
-              ⚠ COLLISION DETECTED
-            </div>
+            <div style={{ fontSize: 10, color: '#f87171', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12, opacity: 0.7 }}>⚠ COLLISION DETECTED</div>
             <h2 style={{ fontSize: 48, fontWeight: 800, color: 'white', lineHeight: 0.95, marginBottom: 20, fontFamily: "'Syne', sans-serif" }}>
               THE<br /><span style={{ color: '#f87171' }}>CRASH</span><br />SITE
             </h2>
@@ -907,49 +998,53 @@ export default function App() {
               </div>
             )}
           </div>
+
+          <div>
+            {distraction && (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                  <div style={{ width: 120, height: 120, borderRadius: '50%', margin: '0 auto 16px', background: 'radial-gradient(circle, #f8717133 0%, transparent 70%)', border: '2px solid #f8717144', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pulse-ring 3s ease-in-out infinite', boxShadow: '0 0 40px #f8717122' }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: '#f87171', fontFamily: "'Syne', sans-serif" }}>{fmt(distraction.time_lost)}</div>
+                  </div>
+                  <p style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>TOTAL TIME LOST</p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {distraction.by_domain.slice(0, 5).map((d, i) => (
+                    <div key={i}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>{d.domain}</span>
+                        <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>{fmt(d.time_spent)} · {d.visits}×</span>
+                      </div>
+                      <div style={{ height: 3, background: '#0a1224', overflow: 'hidden' }}>
+                        <div style={{ height: 3, background: 'linear-gradient(to right, #f87171, #f97316)', width: `${(d.time_spent / (distraction.by_domain[0]?.time_spent || 1)) * 100}%`, boxShadow: '0 0 8px #f87171' }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          SECTION 4: MISSION CONTROL — Focus Dashboard
-      ═══════════════════════════════════════════════════════ */}
+      {/* ═══ SECTION 4: MISSION CONTROL ═══ */}
       <div className="section" style={{ background: 'radial-gradient(ellipse at 70% 50%, #0a1a0a 0%, #020817 60%)' }}>
         <StarField id="control-stars" />
-
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 900, width: '90%' }}>
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
-            <div style={{ fontSize: 10, color: '#34d399', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>
-              SYSTEM STATUS
-            </div>
-            <h2 style={{ fontSize: 48, fontWeight: 800, color: 'white', fontFamily: "'Syne', sans-serif" }}>
-              MISSION CONTROL
-            </h2>
+            <div style={{ fontSize: 10, color: '#34d399', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>SYSTEM STATUS</div>
+            <h2 style={{ fontSize: 48, fontWeight: 800, color: 'white', fontFamily: "'Syne', sans-serif" }}>MISSION CONTROL</h2>
           </div>
-
           {focusSummary && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
-              {/* Big focus gauge */}
-              <div style={{ gridColumn: '1 / 2', background: '#0a1224', padding: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ background: '#0a1224', padding: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="120" height="120" viewBox="0 0 120 120">
                   <circle cx="60" cy="60" r="50" fill="none" stroke="#0f172a" strokeWidth="8" />
-                  <circle cx="60" cy="60" r="50" fill="none"
-                    stroke={focusSummary.avg_focus > 0.6 ? '#34d399' : '#f87171'}
-                    strokeWidth="8" strokeLinecap="round"
-                    strokeDasharray="314"
-                    strokeDashoffset={314 - (314 * focusSummary.avg_focus)}
-                    transform="rotate(-90 60 60)"
-                    style={{ transition: 'stroke-dashoffset 2s ease' }}
-                  />
-                  <text x="60" y="55" textAnchor="middle" fill="white" fontSize="20" fontWeight="800" fontFamily="Syne, sans-serif">
-                    {(focusSummary.avg_focus * 100).toFixed(0)}%
-                  </text>
-                  <text x="60" y="72" textAnchor="middle" fill="#334155" fontSize="8" fontFamily="Space Mono, monospace">
-                    FOCUS SCORE
-                  </text>
+                  <circle cx="60" cy="60" r="50" fill="none" stroke={focusSummary.avg_focus > 0.6 ? '#34d399' : '#f87171'} strokeWidth="8" strokeLinecap="round" strokeDasharray="314" strokeDashoffset={314 - (314 * focusSummary.avg_focus)} transform="rotate(-90 60 60)" />
+                  <text x="60" y="55" textAnchor="middle" fill="white" fontSize="20" fontWeight="800" fontFamily="Syne, sans-serif">{(focusSummary.avg_focus * 100).toFixed(0)}%</text>
+                  <text x="60" y="72" textAnchor="middle" fill="#334155" fontSize="8" fontFamily="Space Mono, monospace">FOCUS SCORE</text>
                 </svg>
               </div>
-
-              {/* Stats grid */}
               {([
                 ['NODES TRACKED', String(focusSummary.total_nodes), '#60a5fa'],
                 ['FOCUS TIME', fmt(focusSummary.focus_time), '#34d399'],
@@ -957,77 +1052,47 @@ export default function App() {
                 ['DISTRACTIONS', String(focusSummary.distraction_nodes), '#f97316'],
                 ['EFFICIENCY', `${((focusSummary.focus_time / (focusSummary.total_time || 1)) * 100).toFixed(0)}%`, '#a78bfa'],
               ] as [string, string, string][]).map(([label, val, col]) => (
-                <div key={label} style={{ background: '#0a1224', padding: '24px 28px', borderLeft: '2px solid transparent', borderImage: `linear-gradient(to bottom, ${col}, transparent) 1` }}>
+                <div key={label} style={{ background: '#0a1224', padding: '24px 28px', borderLeft: `2px solid ${col}44` }}>
                   <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>{label}</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: col, fontFamily: "'Syne', sans-serif" }}>{val}</div>
                 </div>
               ))}
             </div>
           )}
-
-          {/* Cluster breakdown */}
           <div style={{ marginTop: 2, background: '#0a1224', padding: '20px 28px' }}>
             <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 16 }}>BROWSING SIGNATURE</div>
-            <div style={{ display: 'flex', gap: 0, height: 8, overflow: 'hidden' }}>
-              {clusters.map((cluster, i) => {
+            <div style={{ display: 'flex', height: 8, overflow: 'hidden' }}>
+              {clusters.map(cluster => {
                 const count = allNodes.filter(n => n.cluster === cluster).length
-                const pct = (count / allNodes.length) * 100
-                return (
-                  <div key={cluster} title={`${cluster}: ${count} tabs`} style={{
-                    width: `${pct}%`, height: 8,
-                    background: hex(cc(cluster)),
-                    transition: 'width 1s ease',
-                  }} />
-                )
+                return <div key={cluster} title={`${cluster}: ${count}`} style={{ width: `${(count / allNodes.length) * 100}%`, height: 8, background: hex(cc(cluster)) }} />
               })}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
-              {clusters.map(cluster => {
-                const count = allNodes.filter(n => n.cluster === cluster).length
-                return (
-                  <div key={cluster} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div style={{ width: 6, height: 6, background: hex(cc(cluster)), borderRadius: '50%' }} />
-                    <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>
-                      {cluster} <span style={{ color: '#334155' }}>({count})</span>
-                    </span>
-                  </div>
-                )
-              })}
+              {clusters.map(cluster => (
+                <div key={cluster} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 6, height: 6, background: hex(cc(cluster)), borderRadius: '50%' }} />
+                  <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>
+                    {cluster} <span style={{ color: '#334155' }}>({allNodes.filter(n => n.cluster === cluster).length})</span>
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
-          SECTION 5: THE VOID — Dead Stars & Guilt Pile
-      ═══════════════════════════════════════════════════════ */}
+      {/* ═══ SECTION 5: THE VOID ═══ */}
       <div className="section" style={{ background: '#020817' }}>
         <StarField id="void-stars" />
-
-        {/* Dead stars floating */}
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           {allNodes.filter(n => n.days_since_visit > 7).slice(0, 12).map((n, i) => (
-            <div key={i} style={{
-              position: 'absolute',
-              left: `${10 + (i * 7.5) % 80}%`,
-              top: `${20 + (i * 11) % 60}%`,
-              width: 8 + Math.random() * 12,
-              height: 8 + Math.random() * 12,
-              borderRadius: '50%',
-              background: hex(cc(n.cluster)),
-              opacity: 0.1 + Math.random() * 0.2,
-              animation: `dead-pulse ${3 + Math.random() * 4}s ease-in-out infinite ${Math.random() * 3}s`,
-            }} />
+            <div key={i} style={{ position: 'absolute', left: `${10 + (i * 7.5) % 80}%`, top: `${20 + (i * 11) % 60}%`, width: 8 + Math.random() * 12, height: 8 + Math.random() * 12, borderRadius: '50%', background: hex(cc(n.cluster)), opacity: 0.15, animation: `dead-pulse ${3 + Math.random() * 4}s ease-in-out infinite ${Math.random() * 3}s` }} />
           ))}
         </div>
 
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 700, width: '90%', textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 16 }}>
-            SECTOR: FORGOTTEN
-          </div>
-          <h2 style={{ fontSize: 56, fontWeight: 800, color: 'white', lineHeight: 0.9, marginBottom: 24, fontFamily: "'Syne', sans-serif" }}>
-            THE<br />VOID
-          </h2>
+          <div style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 16 }}>SECTOR: FORGOTTEN</div>
+          <h2 style={{ fontSize: 56, fontWeight: 800, color: 'white', lineHeight: 0.9, marginBottom: 24, fontFamily: "'Syne', sans-serif" }}>THE<br />VOID</h2>
           <p style={{ fontSize: 14, color: '#334155', lineHeight: 1.8, marginBottom: 40, fontFamily: "'Syne', sans-serif" }}>
             Some tabs are opened with great intention.<br />
             Then never returned to.<br />
@@ -1050,17 +1115,15 @@ export default function App() {
           {allNodes.filter(n => n.days_since_visit > 7).length > 0 && (
             <div style={{ background: '#0a1224', padding: 20 }}>
               <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 14 }}>FADING SIGNALS</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {allNodes.filter(n => n.days_since_visit > 7).slice(0, 5).map((n, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #0f172a' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: hex(cc(n.cluster)), opacity: 0.4, flexShrink: 0 }} />
-                      <span style={{ fontSize: 11, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
-                    </div>
-                    <span style={{ fontSize: 9, color: '#1e293b', fontFamily: "'Space Mono', monospace", flexShrink: 0, marginLeft: 12 }}>{n.days_since_visit}D AGO</span>
+              {allNodes.filter(n => n.days_since_visit > 7).slice(0, 5).map((n, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #0f172a' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: hex(cc(n.cluster)), opacity: 0.4, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
                   </div>
-                ))}
-              </div>
+                  <span style={{ fontSize: 9, color: '#1e293b', fontFamily: "'Space Mono', monospace", flexShrink: 0, marginLeft: 12 }}>{n.days_since_visit}D AGO</span>
+                </div>
+              ))}
             </div>
           )}
 

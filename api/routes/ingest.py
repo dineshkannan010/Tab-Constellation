@@ -92,7 +92,7 @@ class EventPayload(BaseModel):
     window_id: int
     session_id: UUID
     event_type: Literal["tab_created", "tab_activated", "tab_closed"]
-    timestamp: AwareDatetime
+    timestamp: Optional[AwareDatetime] = None
     url: Optional[str] = Field(None, max_length=MAX_URL)
 
 
@@ -102,7 +102,7 @@ class ScreenshotPayload(BaseModel):
     session_id: UUID
     url: str = Field(..., max_length=MAX_URL)
     screenshot_b64: str = Field(..., min_length=1, max_length=MAX_SCREENSHOT_B64)
-    timestamp: AwareDatetime
+    timestamp: Optional[AwareDatetime] = None
 
 
 class HistoryItem(BaseModel):
@@ -128,6 +128,8 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 def _serialize(payload: BaseModel) -> dict:
     record = payload.model_dump(mode="json")
     record["received_at"] = datetime.now(timezone.utc).isoformat()
+    if record.get("timestamp") is None:
+        record["timestamp"] = datetime.now(timezone.utc).isoformat()
     return record
 
 

@@ -9,7 +9,11 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8001',
         changeOrigin: true,
-      }
+      },
+      '/onboarding': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     }
   }
 })
