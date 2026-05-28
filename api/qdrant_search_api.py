@@ -546,6 +546,130 @@ def get_focus_summary():
         "distraction_nodes": sum(1 for p in payloads if p.get("is_distraction")),
     }
 
+@app.get("/api/v1/graph/referrer-chain/{node_id}")
+def get_referrer_chain(node_id: str):
+    """
+    Trace back how you arrived at a page — pure Neo4j graph traversal.
+    This is what Qdrant cannot do — follow directed edges.
+    """
+    try:
+        from neo4j import GraphDatabase
+        driver = GraphDatabase.driver(
+            "bolt://localhost:7687",
+            auth=("neo4j", "constellation")
+        )
+        with driver.session() as session:
+            # Forward chain — what did this tab lead to?
+            forward = session.run("""
+                MATCH (n:BrowsingNode {node_id: $node_id})-[:REFERRED_TO*1..5]->(m:BrowsingNode)
+                RETURN m.title AS title, m.domain AS domain,
+                       m.cluster AS cluster, m.node_id AS node_id,
+                       m.url AS url
+                LIMIT 5
+            """, {"node_id": node_id})
+
+            # Backward chain — how did I get here?
+            backward = session.run("""
+                MATCH (origin:BrowsingNode)-[:REFERRED_TO*1..5]->(target:BrowsingNode {node_id: $node_id})
+                RETURN [n IN nodes(
+                    shortestPath((origin)-[:REFERRED_TO*]->(target))
+                ) | {
+                    title: n.title,
+                    domain: n.domain,
+                    cluster: n.cluster,
+                    node_id: n.node_id,
+                    url: n.url
+                }] AS chain
+                ORDER BY length(
+                    shortestPath((origin)-[:REFERRED_TO*]->(target))
+                ) DESC
+                LIMIT 1
+            """, {"node_id": node_id})
+
+            forward_chain = [dict(r) for r in forward]
+            backward_row  = backward.single()
+            backward_chain = backward_row["chain"] if backward_row else []
+
+        driver.close()
+        return {
+            "node_id":       node_id,
+            "how_i_got_here": backward_chain,
+            "led_to":         forward_chain,
+        }
+    except Exception as e:
+        return {"node_id": node_id, "how_i_got_here": [], "led_to": [], "error": str(e)}
+
+
+@app.get("/api/v1/graph/temporal-neighbors/{node_id}")
+def get_temporal_neighbors(node_id: str):
+    """
+    Find the tab opened just before and just after this one.
+    Uses session siblings sorted by point ID (insertion order).
+    """
+    client = get_qdrant_client()
+    
+    # First get the clicked node to find its session
+    try:
+        # Find node by node_id payload field
+        results, _ = client.scroll(
+            collection_name=ACTIVE_CONFIG.collection_name,
+            scroll_filter=Filter(
+                must=[FieldCondition(
+                    key="node_id", 
+                    match=MatchValue(value=node_id)
+                )]
+            ),
+            limit=1,
+            with_payload=True,
+        )
+        if not results:
+            return {"before": None, "after": None, "current": None}
+        
+        current = results[0].payload
+        current_point_id = results[0].id
+        session_id = current.get("session_id")
+        
+        if not session_id:
+            return {"before": None, "after": None, "current": current}
+        
+        # Get all tabs in the same session
+        session_results, _ = client.scroll(
+            collection_name=ACTIVE_CONFIG.collection_name,
+            scroll_filter=Filter(
+                must=[FieldCondition(
+                    key="session_id",
+                    match=MatchValue(value=session_id)
+                )]
+            ),
+            limit=100,
+            with_payload=True,
+        )
+        
+        # Sort by point ID — approximates insertion/ingestion order
+        sorted_points = sorted(session_results, key=lambda p: p.id)
+        
+        # Find current node position
+        current_idx = next(
+            (i for i, p in enumerate(sorted_points) if p.id == current_point_id),
+            None
+        )
+        
+        if current_idx is None:
+            return {"before": None, "after": None, "current": current}
+        
+        before = sorted_points[current_idx - 1].payload if current_idx > 0 else None
+        after  = sorted_points[current_idx + 1].payload if current_idx < len(sorted_points) - 1 else None
+        
+        return {
+            "current":      current,
+            "before":       before,
+            "after":        after,
+            "session_size": len(sorted_points),
+            "position":     current_idx + 1,
+        }
+    except Exception as e:
+        return {"before": None, "after": None, "current": None, "error": str(e)}
+
 
 # ─── Standalone run ────────────────────────────────────────────
 

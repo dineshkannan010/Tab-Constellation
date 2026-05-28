@@ -42,3 +42,6 @@ npm-debug.log*
 yarn-debug.log*
 
 .claude/
+
+data/
+api/data/
