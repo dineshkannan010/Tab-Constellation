@@ -224,6 +224,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       title,
       meta_description,
       dom_snippet,
+      // New extraction fields — pass through to backend
+      og_title: content ? content.og_title : null,
+      og_description: content ? content.og_description : null,
+      og_site_name: content ? content.og_site_name : null,
+      h1: content ? content.h1 : null,
+      path_tokens: content ? content.path_tokens : "",
       timestamp: isoNow(),
       event_type: "tab_loaded",
     });
@@ -319,8 +325,7 @@ async function runHistoryBackfill() {
   try {
     log.info("history backfill starting");
     const session_id = await getSessionId();
-    // TODO: bump back to 30 days once we're past local-dev testing.
-    const startTime = Date.now() - 1 * 24 * 60 * 60 * 1000;
+    const startTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const items = await chrome.history.search({ text: "", startTime, maxResults: 5000 });
     log.info("history rows:", items.length);
 

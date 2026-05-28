@@ -140,6 +140,33 @@ SOCIAL_DOMAINS = {
     "facebook.com", "linkedin.com", "threads.net",
 }
 
+def _build_classification_text(tab: dict) -> str:
+    """
+    Compose the best-quality text for NLI classification.
+    Priority: og metadata first (cleanest), then h1, then path tokens,
+    then dom_snippet (noisier). NLI weights the start of the input more,
+    so high-signal fields go first.
+    """
+    parts = [
+        tab.get("og_title") or tab.get("title") or "",
+        tab.get("og_description") or tab.get("meta_description") or "",
+        tab.get("h1") or "",
+        tab.get("path_tokens") or "",
+        (tab.get("dom_snippet") or "")[:600],  # noisier; keep short
+    ]
+    # Dedupe near-identical lines (og_title often == title)
+    seen = set()
+    deduped = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        key = p.lower()[:80]
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(p)
+    return " ".join(deduped)
 # ── Singletons ─────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
@@ -211,73 +238,114 @@ def _classify_cluster(
     description: str = "",
     dom_snippet: str = "",
 ) -> str:
-    d = _normalize_domain(domain)
-    t = title.lower()
+    try:
+        d = _normalize_domain(domain)
+        t = title.lower()
 
-    # Layer 1: definitive domain
-    if d in DEFINITIVE_DOMAINS:
-        return DEFINITIVE_DOMAINS[d]
-    for known, cluster in DEFINITIVE_DOMAINS.items():
-        if d.endswith("." + known):
-            return cluster
+        if d in DEFINITIVE_DOMAINS:
+            return DEFINITIVE_DOMAINS[d]
+        for known, cluster in DEFINITIVE_DOMAINS.items():
+            if d.endswith("." + known):
+                return cluster
 
-    # Reddit special case — classify by content not domain
-    if "reddit.com" in d:
-        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
-        if any(s in content for s in FOCUS_SIGNALS):
-            return "research"
-        return "social"
+        if "reddit.com" in d:
+            if len(dom_snippet.strip()) > 30:
+                try:
+                    result = get_classifier()(
+                        dom_snippet[:512], CLUSTER_NAMES, multi_label=False,
+                    )
+                    top_label = result["labels"][0]
+                    top_score = result["scores"][0]
+                    if top_score > 0.35:
+                        return top_label
+                except Exception:
+                    pass
+            content = dom_snippet.lower()
+            if any(s in content for s in FOCUS_SIGNALS):
+                return "research"
+            return "social"
 
-    # Layer 2: YouTube DOM override
-    if d == "youtube.com":
-        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
-        if any(s in content for s in FOCUS_SIGNALS):
-            return "research"
-        return "entertainment"
+        if d == "youtube.com":
+            if len(dom_snippet.strip()) > 30:
+                try:
+                    result = get_classifier()(
+                        dom_snippet[:512], CLUSTER_NAMES, multi_label=False,
+                    )
+                    labels = result["labels"]
+                    scores = result["scores"]
+                    top_label = labels[0]
+                    top_score = scores[0]
+                    # Lower confidence threshold — this NLI model scores conservatively
+                    print(f"DEBUG youtube NLI top3: {list(zip(labels[:3], [round(s,2) for s in scores[:3]]))}")
 
-    # Layer 3: NLI on real content
-    content = " ".join(filter(None, [description, dom_snippet[:300], title]))
-    if len(content.strip()) > 20:
-        try:
-            result = get_classifier()(
-                content[:512], CLUSTER_NAMES, multi_label=False,
-            )
-            if result["scores"][0] > 0.3:
-                return result["labels"][0]
-        except Exception as e:
-            print(f"NLI error: {e}")
+                    # Trust NLI's top label unless it's clearly entertainment-leaning
+                    if top_score > 0.25:
+                        # Special case: if top is entertainment but a focused cluster
+                        # is close behind, prefer the focused one (NLI sometimes
+                        # over-weights "video = entertainment")
+                        FOCUSED = {"research", "work", "reference", "creative", "news", "health", "finance"}
+                        if top_label == "entertainment":
+                            for lbl, sc in zip(labels[1:4], scores[1:4]):
+                                if lbl in FOCUSED and sc > top_score - 0.15:
+                                    return lbl
+                        return top_label
+                except Exception as e:
+                    print(f"DEBUG youtube NLI error: {e}")
 
-    # Layer 4: search engine query extraction
-    search_engines = [
-        "google.com", "search.brave.com", "bing.com",
-        "duckduckgo.com", "search.yahoo.com",
-    ]
-    if any(x in d for x in search_engines):
-        query = t
-        for suffix in ["- brave search", "- google search", "- bing", "- duckduckgo"]:
-            query = query.replace(suffix, "").strip()
-        if query and len(query) > 3:
+            content = dom_snippet.lower()
+            if any(s in content for s in FOCUS_SIGNALS):
+                return "research"
+            return "entertainment"
+
+        # Layer 3: NLI on real content
+        content = " ".join(filter(None, [description, dom_snippet[:300], title]))
+        if len(content.strip()) > 20:
             try:
-                result = get_classifier()(query, CLUSTER_NAMES, multi_label=False)
-                if result["scores"][0] > 0.35:
+                result = get_classifier()(
+                    content[:512], CLUSTER_NAMES, multi_label=False,
+                )
+                if result["scores"][0] > 0.3:
                     return result["labels"][0]
-            except Exception:
-                pass
-        return "reference"
+            except Exception as e:
+                print(f"NLI error: {e}")
 
-    # Domain pattern hints
-    if any(x in d for x in [".edu", "university", "college", "academy"]):
-        return "research"
-    if any(x in d for x in ["docs.", "doc.", "api.", "dev.", "developer."]):
-        return "reference"
-    if any(x in d for x in ["shop", "store", "buy", "deal", "sale"]):
-        return "shopping"
-    if any(x in d for x in ["health", "medical", "clinic", "pharma"]):
-        return "health"
-    if any(x in d for x in ["news", "press", "daily", "times", "post"]):
-        return "news"
+        # Layer 4: search engine query extraction
+        search_engines = [
+            "google.com", "search.brave.com", "bing.com",
+            "duckduckgo.com", "search.yahoo.com",
+        ]
+        if any(x in d for x in search_engines):
+            query = t
+            for suffix in ["- brave search", "- google search", "- bing", "- duckduckgo"]:
+                query = query.replace(suffix, "").strip()
+            if query and len(query) > 3:
+                try:
+                    result = get_classifier()(query, CLUSTER_NAMES, multi_label=False)
+                    if result["scores"][0] > 0.35:
+                        return result["labels"][0]
+                except Exception:
+                    pass
+            return "reference"
 
-    return "reference"
+        # Domain pattern hints
+        if any(x in d for x in [".edu", "university", "college", "academy"]):
+            return "research"
+        if any(x in d for x in ["docs.", "doc.", "api.", "dev.", "developer."]):
+            return "reference"
+        if any(x in d for x in ["shop", "store", "buy", "deal", "sale"]):
+            return "shopping"
+        if any(x in d for x in ["health", "medical", "clinic", "pharma"]):
+            return "health"
+        if any(x in d for x in ["news", "press", "daily", "times", "post"]):
+            return "news"
+
+        return "reference"
+    
+    except Exception as e:
+        import traceback
+        print(f"DEBUG _classify_cluster crashed: {e}")
+        traceback.print_exc()
+        raise
 
 
 def _is_distraction(
@@ -346,6 +414,8 @@ def _focus_score(
 # ── Main entry point ───────────────────────────────────────────
 
 def process_tab(tab: dict) -> None:
+    print(f"DEBUG process_tab input: title={tab.get('title')!r} og_title={tab.get('og_title')!r} og_desc={(tab.get('og_description') or '')[:80]!r} h1={tab.get('h1')!r} path={tab.get('path_tokens')!r} dom_len={len(tab.get('dom_snippet') or '')}")
+
     try:
         title       = tab.get("title") or ""
         domain      = tab.get("domain") or ""
@@ -362,9 +432,16 @@ def process_tab(tab: dict) -> None:
         if url.startswith("chrome") or url.startswith("about"):
             return
 
-        cluster = _classify_cluster(title, domain, description, dom_snippet)
+        # Build one rich text blob and reuse it for both classification and embedding.
+        rich_text = _build_classification_text(tab)
+        print(f"DEBUG rich_text (first 300): {rich_text[:300]!r}")
+
+        cluster = _classify_cluster(
+            title, domain, description, rich_text  # pass rich_text where dom_snippet used to go
+        )
+        print(f"DEBUG cluster decision: {cluster}")
         distraction = _is_distraction(
-            cluster, domain, title, dom_snippet, description
+            cluster, domain, title, rich_text, description
         )
 
         point_id    = int(hashlib.md5(url.encode()).hexdigest(), 16) % (2**63)
@@ -388,9 +465,8 @@ def process_tab(tab: dict) -> None:
             dom_snippet, existing_time, cluster
         )
 
-        embed_text = " ".join(filter(None, [
-            description, dom_snippet[:200], title, domain
-        ]))
+        embed_text = rich_text or f"{title} {domain}"
+        
         vector = get_embedding_model().encode(
             [embed_text], normalize_embeddings=True
         )[0].tolist()

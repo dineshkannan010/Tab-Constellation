@@ -41,6 +41,9 @@ MAX_META_DESC = 4096
 MAX_DOM_SNIPPET = 2000
 MAX_SCREENSHOT_B64 = 4_000_000
 MAX_HISTORY_BATCH = 100
+MAX_H1 = 300
+MAX_PATH_TOKENS = 300
+MAX_OG_SITE_NAME = 200
 
 
 def ensure_dirs() -> None:
@@ -74,6 +77,12 @@ class TabPayload(BaseModel):
     title: str = Field("", max_length=MAX_TITLE)
     meta_description: Optional[str] = Field(None, max_length=MAX_META_DESC)
     dom_snippet: str = Field("", max_length=MAX_DOM_SNIPPET)
+    # New extraction fields — all optional for back-compat with older clients
+    og_title: Optional[str] = Field(None, max_length=MAX_TITLE)
+    og_description: Optional[str] = Field(None, max_length=MAX_META_DESC)
+    og_site_name: Optional[str] = Field(None, max_length=MAX_OG_SITE_NAME)
+    h1: Optional[str] = Field(None, max_length=MAX_H1)
+    path_tokens: str = Field("", max_length=MAX_PATH_TOKENS)
     timestamp: AwareDatetime
     event_type: Literal["tab_loaded", "history_backfill"]
 
