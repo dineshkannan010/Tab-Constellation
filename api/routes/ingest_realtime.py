@@ -254,115 +254,123 @@ def _classify_cluster(
     domain: str,
     description: str = "",
     dom_snippet: str = "",
+    url: str = "",
 ) -> str:
-    try:
-        d = _normalize_domain(domain)
-        t = title.lower()
-
-        if d in DEFINITIVE_DOMAINS:
-            return DEFINITIVE_DOMAINS[d]
-        for known, cluster in DEFINITIVE_DOMAINS.items():
-            if d.endswith("." + known):
-                return cluster
-
-        if "reddit.com" in d:
-            if len(dom_snippet.strip()) > 30:
-                try:
-                    result = get_classifier()(
-                        dom_snippet[:512], CLUSTER_NAMES, multi_label=False,
-                    )
-                    top_label = result["labels"][0]
-                    top_score = result["scores"][0]
-                    if top_score > 0.35:
-                        return top_label
-                except Exception:
-                    pass
-            content = dom_snippet.lower()
-            if any(s in content for s in FOCUS_SIGNALS):
-                return "research"
-            return "social"
-
-        if d == "youtube.com":
-            if len(dom_snippet.strip()) > 30:
-                try:
-                    result = get_classifier()(
-                        dom_snippet[:512], CLUSTER_NAMES, multi_label=False,
-                    )
-                    labels = result["labels"]
-                    scores = result["scores"]
-                    top_label = labels[0]
-                    top_score = scores[0]
-                    # Lower confidence threshold — this NLI model scores conservatively
-                    print(f"DEBUG youtube NLI top3: {list(zip(labels[:3], [round(s,2) for s in scores[:3]]))}")
-
-                    # Trust NLI's top label unless it's clearly entertainment-leaning
-                    if top_score > 0.25:
-                        # Special case: if top is entertainment but a focused cluster
-                        # is close behind, prefer the focused one (NLI sometimes
-                        # over-weights "video = entertainment")
-                        FOCUSED = {"research", "work", "reference", "creative", "news", "health", "finance"}
-                        if top_label == "entertainment":
-                            for lbl, sc in zip(labels[1:4], scores[1:4]):
-                                if lbl in FOCUSED and sc > top_score - 0.15:
-                                    return lbl
-                        return top_label
-                except Exception as e:
-                    print(f"DEBUG youtube NLI error: {e}")
-
-            content = dom_snippet.lower()
-            if any(s in content for s in FOCUS_SIGNALS):
-                return "research"
-            return "entertainment"
-
-        # Layer 3: NLI on real content
-        content = " ".join(filter(None, [description, dom_snippet[:300], title]))
-        if len(content.strip()) > 20:
+    d = _normalize_domain(domain)
+    t = title.lower()
+ 
+    # Layer 0: user profile domain rules
+    profile = _load_user_profile()
+    user_domains = profile.get("extra_domains", {})
+    if d in user_domains:
+        return user_domains[d]
+    for known, cluster in user_domains.items():
+        if d.endswith("." + known):
+            return cluster
+ 
+    # Layer 1: definitive domains (skip content-dependent ones)
+    CONTENT_DEPENDENT = {"youtube.com", "reddit.com", "old.reddit.com",
+                          "twitter.com", "x.com", "linkedin.com",
+                          "medium.com", "substack.com"}
+ 
+    if d in DEFINITIVE_DOMAINS and d not in CONTENT_DEPENDENT:
+        return DEFINITIVE_DOMAINS[d]
+    for known, cluster in DEFINITIVE_DOMAINS.items():
+        if known not in CONTENT_DEPENDENT and d.endswith("." + known):
+            return cluster
+ 
+    # Reddit — use subreddit path as primary signal
+    if "reddit.com" in d:
+        path = url.split("reddit.com")[-1] if "reddit.com" in url else ""
+        # Extract subreddit name: /r/MachineLearning → "MachineLearning"
+        parts = [p for p in path.split("/") if p and p not in ("r", "comments", "wiki")]
+        subreddit = parts[0] if parts else ""
+        if subreddit and len(subreddit) > 2:
             try:
                 result = get_classifier()(
-                    content[:512], CLUSTER_NAMES, multi_label=False,
+                    subreddit, CLUSTER_NAMES, multi_label=False
                 )
+                if result["scores"][0] > 0.25:
+                    return result["labels"][0]
+            except Exception:
+                pass
+        # Fallback: use title + dom_snippet
+        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
+        all_focus = FOCUS_SIGNALS + profile.get("extra_focus_signals", [])
+        if any(s in content for s in all_focus):
+            return "research"
+        return "social"
+ 
+    # YouTube — use video title from youtube_data (passed via dom_snippet)
+    if d == "youtube.com":
+        content = f"{t} {description.lower()} {dom_snippet.lower()[:300]}"
+        all_focus = FOCUS_SIGNALS + profile.get("extra_focus_signals", [])
+        if any(s in content for s in all_focus):
+            return "research"
+        # Check path — /watch means video page
+        path = url.split("youtube.com")[-1] if "youtube.com" in url else ""
+        if path in ["", "/", "/feed/subscriptions", "/feed/trending", "/feed/explore"]:
+            return "entertainment"
+        # For video pages with no focus signal — use NLI on content
+        if len(content.strip()) > 20:
+            try:
+                result = get_classifier()(content[:512], CLUSTER_NAMES, multi_label=False)
                 if result["scores"][0] > 0.3:
                     return result["labels"][0]
-            except Exception as e:
-                print(f"NLI error: {e}")
-
-        # Layer 4: search engine query extraction
-        search_engines = [
-            "google.com", "search.brave.com", "bing.com",
-            "duckduckgo.com", "search.yahoo.com",
-        ]
-        if any(x in d for x in search_engines):
+            except Exception:
+                pass
+        return "entertainment"
+ 
+    # Layer 3: NLI on real content
+    content = " ".join(filter(None, [description, dom_snippet[:300], title]))
+    if len(content.strip()) > 20:
+        try:
+            result = get_classifier()(
+                content[:512], CLUSTER_NAMES, multi_label=False,
+            )
+            if result["scores"][0] > 0.3:
+                return result["labels"][0]
+        except Exception as e:
+            print(f"NLI error: {e}")
+ 
+    # Layer 4: search engine query extraction
+    search_engines = [
+        "google.com", "search.brave.com", "bing.com",
+        "duckduckgo.com", "search.yahoo.com",
+    ]
+    if any(x in d for x in search_engines):
+        # Extract query from URL params — more reliable than title
+        try:
+            from urllib.parse import urlparse, parse_qs
+            params = parse_qs(urlparse(url).query)
+            query = params.get("q", [""])[0]
+        except Exception:
             query = t
-            for suffix in ["- brave search", "- google search", "- bing", "- duckduckgo"]:
+            for suffix in ["- brave search", "- google search", "- bing"]:
                 query = query.replace(suffix, "").strip()
-            if query and len(query) > 3:
-                try:
-                    result = get_classifier()(query, CLUSTER_NAMES, multi_label=False)
-                    if result["scores"][0] > 0.35:
-                        return result["labels"][0]
-                except Exception:
-                    pass
-            return "reference"
-
-        # Domain pattern hints
-        if any(x in d for x in [".edu", "university", "college", "academy"]):
-            return "research"
-        if any(x in d for x in ["docs.", "doc.", "api.", "dev.", "developer."]):
-            return "reference"
-        if any(x in d for x in ["shop", "store", "buy", "deal", "sale"]):
-            return "shopping"
-        if any(x in d for x in ["health", "medical", "clinic", "pharma"]):
-            return "health"
-        if any(x in d for x in ["news", "press", "daily", "times", "post"]):
-            return "news"
-
+ 
+        if query and len(query) > 3:
+            try:
+                result = get_classifier()(query, CLUSTER_NAMES, multi_label=False)
+                if result["scores"][0] > 0.3:
+                    return result["labels"][0]
+            except Exception:
+                pass
         return "reference"
-    
-    except Exception as e:
-        import traceback
-        print(f"DEBUG _classify_cluster crashed: {e}")
-        traceback.print_exc()
-        raise
+ 
+    # Domain pattern hints
+    if any(x in d for x in [".edu", "university", "college", "academy"]):
+        return "research"
+    if any(x in d for x in ["docs.", "doc.", "api.", "dev.", "developer."]):
+        return "reference"
+    if any(x in d for x in ["shop", "store", "buy", "deal", "sale"]):
+        return "shopping"
+    if any(x in d for x in ["health", "medical", "clinic", "pharma"]):
+        return "health"
+    if any(x in d for x in ["news", "press", "daily", "times", "post"]):
+        return "news"
+ 
+    return "reference"
 
 
 def _is_distraction(
@@ -431,41 +439,58 @@ def _focus_score(
     return min(round(score, 2), 1.0)
 
 
-# ── Main entry point ───────────────────────────────────────────
-
+# ── process_tab  ────────────────────
+ 
 def process_tab(tab: dict) -> None:
-    print(f"DEBUG process_tab input: title={tab.get('title')!r} og_title={tab.get('og_title')!r} og_desc={(tab.get('og_description') or '')[:80]!r} h1={tab.get('h1')!r} path={tab.get('path_tokens')!r} dom_len={len(tab.get('dom_snippet') or '')}")
-
     try:
         title       = tab.get("title") or ""
         domain      = tab.get("domain") or ""
         url         = tab.get("url") or ""
         session     = str(tab.get("session_id", "unknown"))
-        description = tab.get("meta_description") or ""
+        description = tab.get("meta_description") or tab.get("og_description") or ""
         dom_snippet = tab.get("dom_snippet") or ""
         tab_id      = str(tab.get("tab_id", ""))
-
+ 
         if not url.startswith("http"):
             return
         if "localhost" in domain or not domain:
             return
         if url.startswith("chrome") or url.startswith("about"):
             return
+ 
+        # ── Enrich dom_snippet BEFORE classification ───────────
+ 
+        # YouTube: use video title/channel from enriched data
+        youtube_data = tab.get("youtube_data") or {}
+        if "youtube.com" in domain and youtube_data:
+            youtube_title   = youtube_data.get("video_title", "")
+            youtube_channel = youtube_data.get("channel", "")
+            youtube_desc    = youtube_data.get("video_description", "")
+            youtube_cat     = youtube_data.get("category", "")
+            if youtube_title:
+                dom_snippet = f"{youtube_title} {youtube_channel} {youtube_desc} {youtube_cat}"
 
-        # Build one rich text blob and reuse it for both classification and embedding.
-        rich_text = _build_classification_text(tab)
-        print(f"DEBUG rich_text (first 300): {rich_text[:300]!r}")
-
-        cluster = _classify_cluster(
-            title, domain, description, rich_text  # pass rich_text where dom_snippet used to go
-        )
-        print(f"DEBUG cluster decision: {cluster}")
-        distraction = _is_distraction(
-            cluster, domain, title, rich_text, description
-        )
-
+        if "youtube.com" in domain:
+            print(f"DEBUG youtube_data: {youtube_data}")
+            print(f"DEBUG dom_snippet: {dom_snippet[:100]}")
+ 
+        # All sites: enrich with og_title, h1, path_tokens if dom_snippet is weak
+        og_title    = tab.get("og_title") or ""
+        h1          = tab.get("h1") or ""
+        path_tokens = tab.get("path_tokens") or ""
+        if len(dom_snippet) < 100 and (og_title or h1 or path_tokens):
+            dom_snippet = " ".join(filter(None, [og_title, h1, path_tokens, dom_snippet]))
+ 
+        # Use og_description as fallback for description
+        if not description:
+            description = tab.get("og_description") or ""
+ 
+        # ── Classify with enriched content ─────────────────────
+        cluster     = _classify_cluster(title, domain, description, dom_snippet, url)
+        distraction = _is_distraction(cluster, domain, title, dom_snippet, description)
         point_id    = int(hashlib.md5(url.encode()).hexdigest(), 16) % (2**63)
-
+        node_id     = f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}"
+ 
         visit_count   = 1
         existing_time = 0
         try:
@@ -479,20 +504,21 @@ def process_tab(tab: dict) -> None:
                 existing_time = existing[0].payload.get("time_spent", 0)
         except Exception:
             pass
-
+ 
         focus = _focus_score(
             distraction, visit_count, description,
             dom_snippet, existing_time, cluster,
         )
-
-        embed_text = rich_text or f"{title} {domain}"
-        
+ 
+        embed_text = " ".join(filter(None, [
+            description, dom_snippet[:200], title, domain
+        ]))
         vector = get_embedding_model().encode(
             [embed_text], normalize_embeddings=True
         )[0].tolist()
-
+ 
         payload = {
-            "node_id":                   f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}",
+            "node_id":                   node_id,
             "url":                       url,
             "title":                     title,
             "domain":                    domain,
@@ -512,12 +538,13 @@ def process_tab(tab: dict) -> None:
             "meta_description":          description[:200] if description else "",
             "tab_id":                    tab_id,
         }
-
+ 
         get_qdrant().upsert(
             collection_name=COLLECTION_NAME,
             points=[PointStruct(id=point_id, vector=vector, payload=payload)],
         )
-
+ 
+        # ── Neo4j: store node + FOLLOWED_BY edge ───────────────
         driver = get_neo4j()
         with driver.session() as s:
             s.run("""
@@ -526,7 +553,9 @@ def process_tab(tab: dict) -> None:
                     n.session_id = $session_id, n.cluster = $cluster,
                     n.is_distraction = $is_distraction,
                     n.focus_score = $focus_score,
-                    n.visit_count = $visit_count, n.depth = 0
+                    n.visit_count = $visit_count,
+                    n.depth = 0,
+                    n.ingested_at = datetime()
                 MERGE (sess:Session {session_id: $session_id})
                 MERGE (d:Domain {name: $domain})
                 MERGE (c:Cluster {name: $cluster})
@@ -534,7 +563,7 @@ def process_tab(tab: dict) -> None:
                 MERGE (n)-[:HOSTED_ON]->(d)
                 MERGE (n)-[:BELONGS_TO]->(c)
             """, {
-                "node_id":        f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}",
+                "node_id":        node_id,
                 "url":            url,
                 "title":          title,
                 "domain":         domain,
@@ -544,9 +573,23 @@ def process_tab(tab: dict) -> None:
                 "focus_score":    focus,
                 "visit_count":    visit_count,
             })
-
+ 
+            # FOLLOWED_BY edge — builds temporal browsing sequence in Neo4j
+            s.run("""
+                MATCH (prev:BrowsingNode)
+                WHERE prev.session_id = $session_id
+                  AND prev.node_id <> $node_id
+                WITH prev ORDER BY prev.ingested_at DESC LIMIT 1
+                MATCH (curr:BrowsingNode {node_id: $node_id})
+                MERGE (prev)-[:FOLLOWED_BY]->(curr)
+            """, {
+                "session_id": session,
+                "node_id":    node_id,
+            })
+ 
         status = "revisit" if visit_count > 1 else "new"
         print(f"✓ [{status}][{cluster}][distraction={distraction}] {title[:50]}")
-
+ 
     except Exception as e:
         print(f"✗ ingest_realtime error: {e}")
+ 

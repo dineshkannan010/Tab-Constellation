@@ -603,73 +603,61 @@ def get_referrer_chain(node_id: str):
 @app.get("/api/v1/graph/temporal-neighbors/{node_id}")
 def get_temporal_neighbors(node_id: str):
     """
-    Find the tab opened just before and just after this one.
-    Uses session siblings sorted by point ID (insertion order).
+    Find tab before and after using Neo4j FOLLOWED_BY edges.
+    Pure graph traversal — Qdrant cannot do this.
     """
-    client = get_qdrant_client()
-    
-    # First get the clicked node to find its session
     try:
-        # Find node by node_id payload field
-        results, _ = client.scroll(
-            collection_name=ACTIVE_CONFIG.collection_name,
-            scroll_filter=Filter(
-                must=[FieldCondition(
-                    key="node_id", 
-                    match=MatchValue(value=node_id)
-                )]
-            ),
-            limit=1,
-            with_payload=True,
+        from neo4j import GraphDatabase
+        driver = GraphDatabase.driver(
+            "bolt://localhost:7687",
+            auth=("neo4j", "constellation")
         )
-        if not results:
-            return {"before": None, "after": None, "current": None}
-        
-        current = results[0].payload
-        current_point_id = results[0].id
-        session_id = current.get("session_id")
-        
-        if not session_id:
-            return {"before": None, "after": None, "current": current}
-        
-        # Get all tabs in the same session
-        session_results, _ = client.scroll(
-            collection_name=ACTIVE_CONFIG.collection_name,
-            scroll_filter=Filter(
-                must=[FieldCondition(
-                    key="session_id",
-                    match=MatchValue(value=session_id)
-                )]
-            ),
-            limit=100,
-            with_payload=True,
-        )
-        
-        # Sort by point ID — approximates insertion/ingestion order
-        sorted_points = sorted(session_results, key=lambda p: p.id)
-        
-        # Find current node position
-        current_idx = next(
-            (i for i, p in enumerate(sorted_points) if p.id == current_point_id),
-            None
-        )
-        
-        if current_idx is None:
-            return {"before": None, "after": None, "current": current}
-        
-        before = sorted_points[current_idx - 1].payload if current_idx > 0 else None
-        after  = sorted_points[current_idx + 1].payload if current_idx < len(sorted_points) - 1 else None
-        
+        with driver.session() as s:
+            result = s.run("""
+                MATCH (curr:BrowsingNode {node_id: $node_id})
+                OPTIONAL MATCH (prev:BrowsingNode)-[:FOLLOWED_BY]->(curr)
+                OPTIONAL MATCH (curr)-[:FOLLOWED_BY]->(next:BrowsingNode)
+                RETURN
+                    prev.node_id  AS before_id,
+                    prev.title    AS before_title,
+                    prev.url      AS before_url,
+                    prev.cluster  AS before_cluster,
+                    prev.domain   AS before_domain,
+                    next.node_id  AS after_id,
+                    next.title    AS after_title,
+                    next.url      AS after_url,
+                    next.cluster  AS after_cluster,
+                    next.domain   AS after_domain
+            """, {"node_id": node_id})
+
+            row = result.single()
+            if not row:
+                return {"before": None, "after": None, "current": node_id}
+
+            before = {
+                "node_id": row["before_id"],
+                "title":   row["before_title"],
+                "url":     row["before_url"],
+                "cluster": row["before_cluster"],
+                "domain":  row["before_domain"],
+            } if row["before_id"] else None
+
+            after = {
+                "node_id": row["after_id"],
+                "title":   row["after_title"],
+                "url":     row["after_url"],
+                "cluster": row["after_cluster"],
+                "domain":  row["after_domain"],
+            } if row["after_id"] else None
+
+        driver.close()
         return {
-            "current":      current,
-            "before":       before,
-            "after":        after,
-            "session_size": len(sorted_points),
-            "position":     current_idx + 1,
+            "node_id": node_id,
+            "before":  before,
+            "after":   after,
         }
     except Exception as e:
-        return {"before": None, "after": None, "current": None, "error": str(e)}
-
+        return {"before": None, "after": None, "node_id": node_id, "error": str(e)}
 
 # ─── Standalone run ────────────────────────────────────────────
 

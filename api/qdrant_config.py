@@ -55,7 +55,7 @@ PROD_CONFIG = QdrantConfig(
     vector_dim       = 384,
     distance         = "Cosine",
     default_top_k    = 10,
-    score_threshold  = 0.2,
+    score_threshold  = 0.15,
     batch_size       = 100,
 )
 

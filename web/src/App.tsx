@@ -175,7 +175,7 @@ export default function App() {
   const [focusSummary,  setFocusSummary]  = useState<FocusSummary | null>(null)
 
   // Onboarding
-  const [profileSet,   setProfileSet]   = useState<boolean | null>(null)
+  const [profileSet,   setProfileSet]   = useState<boolean | null>(true)
   const [setupPreset,  setSetupPreset]  = useState('')
   const [setupTopics,  setSetupTopics]  = useState('')
   const [presets,      setPresets]      = useState<Preset[]>([])
@@ -257,7 +257,7 @@ export default function App() {
       const res = await fetch(`${API}/api/v1/search/semantic`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k: 15, min_score: 0.2 }),
+        body: JSON.stringify({ query, top_k: 15, min_score: 0.15 }),
       })
       const data = await res.json()
       setHighlightUrls(new Set((data as { score: number; node: Node }[]).map(r => r.node.url)))
@@ -453,45 +453,11 @@ export default function App() {
               scene.add(line)
             }
           } else {
-            // No Neo4j chain — show temporal neighbors (tab before + after)
-            scene.children.filter(c => (c as any).__chainLine).forEach(l => scene.remove(l))
-            fetch(`http://localhost:8001/api/v1/graph/temporal-neighbors/${node.node_id}`)
-              .then(r => r.json())
-              .then(data => {
-                const before = data.before
-                const after  = data.after
-                if (!before && !after) {
-                  setHighlightUrls(new Set())
-                  return
-                }
-                const urls = new Set<string>([node.url])
-                if (before?.url) urls.add(before.url)
-                if (after?.url)  urls.add(after.url)
-                setHighlightUrls(urls)
-
-                const ordered = [before, { url: node.url }, after]
-                  .filter(Boolean) as { url: string }[]
-
-                for (let i = 0; i < ordered.length - 1; i++) {
-                  let posA: THREE.Vector3 | null = null
-                  let posB: THREE.Vector3 | null = null
-                  meshes.forEach(m => {
-                    const n = nodeMap.get(m)
-                    if (n?.url === ordered[i].url)   posA = m.position.clone()
-                    if (n?.url === ordered[i+1].url) posB = m.position.clone()
-                  })
-                  if (posA && posB) {
-                    const geo = new THREE.BufferGeometry().setFromPoints([posA, posB])
-                    const mat = new THREE.LineBasicMaterial({
-                      color: 0x34d399, transparent: true, opacity: 0.85,
-                    })
-                    const line = new THREE.Line(geo, mat)
-                    ;(line as any).__chainLine = true
-                    scene.add(line)
-                  }
-                }
-              })
-              .catch(() => { setHighlightUrls(new Set()) })
+            // No Neo4j referrer chain — just clear highlights
+            setHighlightUrls(new Set())
+            scene.children
+              .filter(c => (c as any).__chainLine)
+              .forEach(l => scene.remove(l))
           }
         })
         .catch(() => {})

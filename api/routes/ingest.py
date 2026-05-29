@@ -85,6 +85,7 @@ class TabPayload(BaseModel):
     path_tokens: str = Field("", max_length=MAX_PATH_TOKENS)
     timestamp: AwareDatetime
     event_type: Literal["tab_loaded", "history_backfill"]
+    youtube_data: Optional[dict] = None
 
 
 class EventPayload(BaseModel):
