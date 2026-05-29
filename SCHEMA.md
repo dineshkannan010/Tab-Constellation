@@ -1,15 +1,6 @@
-# Data contract — DO NOT BREAK without re-signing
-
-This file is the contract between the **ingest pipeline** (the
-extension + `api/routes/ingest.py`, owner: Dinesh) and any downstream
-consumer that builds graph edges, vector indexes, or insights from
-this data (teammate 2: Neo4j edges, Qdrant collections, /search,
-/graph-expand, /insights).
 
 The two payload schemas below are **locked**. Field names, types, and
-event-type enum values are part of the contract. Renaming or
-re-typing any locked field requires both signers below to acknowledge
-the change before it merges.
+event-type enum values are part of the contract.
 
 > If field names drift from what the edge-creation code expects,
 > integration day is a graveyard. We are signing this now precisely so
@@ -108,25 +99,6 @@ consume them but should not pin to specific field names yet.
 If you start building edges that depend on fields from these, move
 them under "LOCKED" above and re-sign.
 
----
-
-## Change process
-
-1. Open a PR that updates this file *and* the affected schemas /
-   consumers in the same commit.
-2. Both signers below must re-acknowledge in the PR description before
-   merge. New `event_type` enum values count as changes.
-3. Bump the **Schema version** below by one.
 
 **Schema version:** 1
 **Last changed:** 2026-05-18
-
----
-
-## Sign-off
-
-By signing below, you acknowledge that the locked schemas above
-reflect what your code reads from / writes to disk.
-
-- [ ] **Ingest pipeline owner** — Dinesh K — date: ____________
-- [ ] **Graph / search owner** — _________________ — date: ____________

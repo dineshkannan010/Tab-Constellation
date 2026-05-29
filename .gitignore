@@ -16,19 +16,10 @@ dist/
 build/
 *.tsbuildinfo
 
-# Ingest pipeline output
-api/data/
-
-# Secrets / env files
+# Env files
 .env
-.env.*
-*.token
-*.pem
-*.key
-*.p12
-*.pfx
-secrets/
-credentials.json
+.env.local
+.env.*.local
 
 # OS / editor
 .DS_Store
@@ -42,3 +33,7 @@ npm-debug.log*
 yarn-debug.log*
 
 .claude/
+Claude.md
+
+data/
+api/data/
