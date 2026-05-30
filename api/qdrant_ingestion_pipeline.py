@@ -45,7 +45,7 @@ from qdrant_config import (
 
 # ─── Paths ─────────────────────────────────────────────────────
 MOCK_DATA_PATH = Path(__file__).parent / "mockData.json"
-API_NODES_URL  = "http://localhost:8000/nodes"  # teammate 1's endpoint (future)
+API_NODES_URL  = "http://localhost:8001/api/v1/nodes/all"
 
 # ─── Helpers ───────────────────────────────────────────────────
 

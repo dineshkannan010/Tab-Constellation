@@ -4,11 +4,7 @@ Tab Constellation — Qdrant Search API
 FastAPI routes that expose Qdrant queries as HTTP endpoints.
 Your React frontend calls these — not Qdrant directly.
 
-Mount this router inside teammate 1's main FastAPI app:
-  from qdrant_search_api import router as qdrant_router
-  app.include_router(qdrant_router, prefix="/api/v1")
-
-Or run standalone for testing:
+Run standalone (required — Vite proxies /api/* to port 8001):
   uvicorn qdrant_search_api:app --reload --port 8001
 
 Endpoints:
@@ -103,6 +99,11 @@ class NodePayload(BaseModel):
     is_escape_node: bool
     time_spent: int
     visit_count: int
+    meta_description: Optional[str] = None
+    tab_id: Optional[str] = None
+    referrer_url: str = ""
+    meta_description: Optional[str] = None
+    tab_id: Optional[str] = None
 
 
 class SemanticSearchResult(BaseModel):
@@ -415,60 +416,109 @@ def get_all_nodes(
     }
 
 
+def _chain_node(n: dict) -> dict:
+    return {
+        "title":          n.get("title", ""),
+        "domain":         n.get("domain", ""),
+        "cluster":        n.get("cluster", ""),
+        "depth":          n.get("depth", 0),
+        "is_distraction": n.get("is_distraction", False),
+        "time_spent":     n.get("time_spent", 0),
+        "url":            n.get("url", ""),
+    }
+
+
 @app.get("/api/v1/insights/rabbit-holes")
 def get_rabbit_hole_insights():
     """
-    Find sessions with depth > 2 — the actual rabbit holes.
-    Returns sessions ordered by max depth descending.
+    Returns two kinds of rabbit holes:
+    - new_tab: opener-chain depth >= 2 (existing behaviour)
+    - same_tab: same-tab navigation chains with a cluster shift
     """
     client = get_qdrant_client()
-    results, _ = client.scroll(
+
+    all_results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
-        scroll_filter=Filter(
-            must=[FieldCondition(key="depth", range=Range(gte=2))]
-        ),
-        limit=200,
+        limit=500,
         with_payload=True,
     )
-    
-    # Group by session
+    payloads = [r.payload for r in all_results]
+
+    # ── Inter-tab rabbit holes (depth-based) ───────────────────
+    inter_tab: list[dict] = []
     sessions: dict[str, list] = {}
-    for r in results:
-        p = r.payload
-        sid = p.get("session_id", "unknown")
-        if sid not in sessions:
-            sessions[sid] = []
-        sessions[sid].append(p)
-    
-    # Build rabbit hole chains ordered by depth
-    rabbit_holes = []
+    for p in payloads:
+        if p.get("depth", 0) >= 2:
+            sid = p.get("session_id", "unknown")
+            sessions.setdefault(sid, []).append(p)
+
     for sid, nodes in sessions.items():
         sorted_nodes = sorted(nodes, key=lambda n: n.get("depth", 0))
-        max_depth = max(n.get("depth", 0) for n in sorted_nodes)
-        total_time = sum(n.get("time_spent", 0) for n in sorted_nodes)
-        has_distraction = any(n.get("is_distraction") for n in sorted_nodes)
-        
-        rabbit_holes.append({
-            "session_id":       sid,
-            "max_depth":        max_depth,
-            "total_time":       total_time,
-            "node_count":       len(sorted_nodes),
-            "has_distraction":  has_distraction,
-            "origin_cluster":   sorted_nodes[0].get("cluster", "unknown"),
-            "exit_cluster":     sorted_nodes[-1].get("cluster", "unknown"),
-            "chain": [{
-                "title":        n.get("title", ""),
-                "domain":       n.get("domain", ""),
-                "cluster":      n.get("cluster", ""),
-                "depth":        n.get("depth", 0),
-                "is_distraction": n.get("is_distraction", False),
-                "time_spent":   n.get("time_spent", 0),
-                "url":          n.get("url", ""),
-            } for n in sorted_nodes],
+        inter_tab.append({
+            "type":            "new_tab",
+            "session_id":      sid,
+            "max_depth":       max(n.get("depth", 0) for n in sorted_nodes),
+            "total_time":      sum(n.get("time_spent", 0) for n in sorted_nodes),
+            "node_count":      len(sorted_nodes),
+            "has_distraction": any(n.get("is_distraction") for n in sorted_nodes),
+            "origin_cluster":  sorted_nodes[0].get("cluster", "unknown"),
+            "exit_cluster":    sorted_nodes[-1].get("cluster", "unknown"),
+            "chain":           [_chain_node(n) for n in sorted_nodes],
         })
-    
-    rabbit_holes.sort(key=lambda x: x["max_depth"], reverse=True)
-    return {"rabbit_holes": rabbit_holes[:10]}
+    inter_tab.sort(key=lambda x: x["max_depth"], reverse=True)
+
+    # ── Same-tab rabbit holes (referrer_url chain + cluster shift) ──
+    url_map = {p["url"]: p for p in payloads if p.get("url")}
+
+    # Build forward adjacency: url → list of nodes that name it as referrer
+    children: dict[str, list] = {}
+    for p in payloads:
+        ref = p.get("referrer_url", "")
+        if ref and ref in url_map and ref != p.get("url"):
+            children.setdefault(ref, []).append(p)
+
+    # Chain roots: have at least one child, but their own referrer isn't in our data
+    roots = [
+        url_map[url] for url in url_map
+        if url in children
+        and (not url_map[url].get("referrer_url") or url_map[url].get("referrer_url") not in url_map)
+    ]
+
+    def build_chain(start: dict) -> list[dict]:
+        chain, visited, current = [start], {start["url"]}, start["url"]
+        while len(chain) < 50:
+            nexts = [n for n in children.get(current, []) if n.get("url") not in visited]
+            if not nexts:
+                break
+            nxt = nexts[0]
+            chain.append(nxt)
+            visited.add(nxt["url"])
+            current = nxt["url"]
+        return chain
+
+    same_tab: list[dict] = []
+    for root in roots:
+        chain = build_chain(root)
+        if len(chain) < 3:
+            continue
+        clusters = [n.get("cluster", "") for n in chain]
+        shifts = sum(1 for i in range(1, len(clusters)) if clusters[i] != clusters[i - 1])
+        if shifts == 0:
+            continue
+        same_tab.append({
+            "type":            "same_tab",
+            "session_id":      chain[0].get("session_id", "unknown"),
+            "max_depth":       len(chain) - 1,
+            "total_time":      sum(n.get("time_spent", 0) for n in chain),
+            "node_count":      len(chain),
+            "has_distraction": any(n.get("is_distraction") for n in chain),
+            "origin_cluster":  clusters[0],
+            "exit_cluster":    clusters[-1],
+            "chain":           [_chain_node(n) for n in chain],
+        })
+    same_tab.sort(key=lambda x: x["node_count"], reverse=True)
+
+    return {"rabbit_holes": inter_tab[:5] + same_tab[:5]}
 
 
 @app.get("/api/v1/insights/distraction-summary")
