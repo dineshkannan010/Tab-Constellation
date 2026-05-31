@@ -232,6 +232,7 @@ def _ensure_collection(client: QdrantClient) -> None:
         ("tab_closed_without_return", PayloadSchemaType.BOOL),
         ("is_escape_node",            PayloadSchemaType.BOOL),
         ("revisited",                 PayloadSchemaType.BOOL),
+        ("referrer_url",              PayloadSchemaType.KEYWORD),
         ("days_since_visit",          PayloadSchemaType.FLOAT),
         ("focus_score",               PayloadSchemaType.FLOAT),
         ("scroll_depth",              PayloadSchemaType.FLOAT),
@@ -537,6 +538,7 @@ def process_tab(tab: dict) -> None:
             "depth":                     0,
             "meta_description":          description[:200] if description else "",
             "tab_id":                    tab_id,
+            "referrer_url":              (tab.get("referrer_url") or "")[:500],
         }
  
         get_qdrant().upsert(

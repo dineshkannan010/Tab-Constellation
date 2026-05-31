@@ -84,6 +84,7 @@ PAYLOAD_INDEXES: dict[str, str] = {
     "tab_closed_without_return": "bool",
     "is_escape_node":            "bool",
     "revisited":                 "bool",
+    "referrer_url":              "keyword",
     "days_since_visit":          "float",
     "focus_score":               "float",
     "scroll_depth":              "float",

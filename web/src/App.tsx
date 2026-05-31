@@ -19,6 +19,7 @@ type RabbitHole = {
   session_id: string; max_depth: number; total_time: number
   node_count: number; has_distraction: boolean
   origin_cluster: string; exit_cluster: string; chain: ChainNode[]
+  type?: 'new_tab' | 'same_tab'
 }
 type DistractionSummary = {
   total: number; time_lost: number
@@ -44,6 +45,17 @@ const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
 const fmt = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`
 
 type Panel = 'none' | 'rabbit' | 'distraction' | 'focus'
+
+function shiftIdx(chain: ChainNode[]): number {
+  return chain.findIndex(n => n.is_distraction)
+}
+
+function dedupeClusters(chain: ChainNode[]): string[] {
+  return chain.reduce<string[]>((acc, n) => {
+    if (acc[acc.length - 1] !== n.cluster) acc.push(n.cluster)
+    return acc
+  }, [])
+}
 
 // ── Global CSS ─────────────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -793,33 +805,61 @@ export default function App() {
               ? <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>NO DEEP SESSIONS YET</p>
               : rabbitHoles.map((rh, i) => (
                 <div key={i} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #0a1224' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>
-                      DEPTH {rh.max_depth} · {rh.node_count} TABS · {fmt(rh.total_time)}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontSize: 9, color: rh.type === 'same_tab' ? '#a78bfa' : '#60a5fa', fontFamily: "'Space Mono', monospace", letterSpacing: 1 }}>
+                      {rh.type === 'same_tab' ? '⟳ SAME TAB SPIRAL' : '⎋ NEW TAB CHAIN'}
                     </span>
                     {rh.has_distraction && <span style={{ fontSize: 9, color: '#f87171', border: '1px solid #f8717144', padding: '1px 6px', fontFamily: "'Space Mono', monospace" }}>DERAILED</span>}
                   </div>
-                  {rh.chain.map((n, j) => (
-                    <div key={j} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 4 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 2 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: hex(cc(n.cluster)), flexShrink: 0, boxShadow: n.is_distraction ? `0 0 6px ${hex(cc(n.cluster))}` : 'none' }} />
-                        {j < rh.chain.length - 1 && <div style={{ width: 1, height: 14, background: '#1e293b', marginTop: 2 }} />}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: n.is_distraction ? '#f87171' : 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {n.title}
-                        </p>
-                        <p style={{ margin: 0, fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
-                          {n.domain}{n.time_spent > 0 ? ` · ${fmt(n.time_spent)}` : ''}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  <div style={{ display: 'flex', gap: 4, marginTop: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 9, color: hex(cc(rh.origin_cluster)), border: `1px solid ${hex(cc(rh.origin_cluster))}44`, padding: '1px 5px', fontFamily: "'Space Mono', monospace" }}>{rh.origin_cluster.toUpperCase()}</span>
-                    <span style={{ fontSize: 9, color: '#334155' }}>→→→</span>
-                    <span style={{ fontSize: 9, color: hex(cc(rh.exit_cluster)), border: `1px solid ${hex(cc(rh.exit_cluster))}44`, padding: '1px 5px', fontFamily: "'Space Mono', monospace" }}>{rh.exit_cluster.toUpperCase()}</span>
+                  <div style={{ marginBottom: 10 }}>
+                    <span style={{ fontSize: 10, color: '#475569', fontFamily: "'Space Mono', monospace" }}>
+                      {rh.type === 'same_tab' ? 'HOPS' : 'DEPTH'} {rh.max_depth} · {rh.node_count} TABS · {fmt(rh.total_time)}
+                    </span>
                   </div>
+                  {(() => {
+                    const si = shiftIdx(rh.chain)
+                    return rh.chain.map((n, j) => (
+                      <div key={j}>
+                        {j === si && si > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, paddingLeft: 15 }}>
+                            <div style={{ flex: 1, height: 1, background: '#f8717133' }} />
+                            <span style={{ fontSize: 8, color: '#f87171', fontFamily: "'Space Mono', monospace" }}>FOCUS LOST</span>
+                            <div style={{ flex: 1, height: 1, background: '#f8717133' }} />
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 4 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 2 }}>
+                            <div style={{ width: 7, height: 7, borderRadius: '50%', background: hex(cc(n.cluster)), flexShrink: 0, boxShadow: n.is_distraction ? `0 0 6px ${hex(cc(n.cluster))}` : 'none' }} />
+                            {j < rh.chain.length - 1 && (
+                              <div style={{ width: 1, height: 14, background: si >= 0 && j >= si ? '#f8717133' : '#1e293b', marginTop: 2 }} />
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: n.is_distraction ? '#f87171' : 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {n.title}
+                            </p>
+                            <p style={{ margin: 0, fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
+                              {n.domain}{n.time_spent > 0 ? ` · ${fmt(n.time_spent)}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  })()}
+                  {/* Cluster trail */}
+                  {(() => {
+                    const path = dedupeClusters(rh.chain)
+                    return (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {path.map((c, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 9, color: hex(cc(c)), border: `1px solid ${hex(cc(c))}44`, padding: '1px 5px', fontFamily: "'Space Mono', monospace" }}>{c.toUpperCase()}</span>
+                            {idx < path.length - 1 && <span style={{ fontSize: 9, color: '#334155' }}>→</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </div>
               ))}
           </div>
@@ -880,7 +920,9 @@ export default function App() {
 
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 900, width: '90%', display: 'flex', gap: 60, alignItems: 'center' }}>
           <div style={{ flex: '0 0 280px' }}>
-            <div style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>RABBIT HOLE DETECTED</div>
+            <div style={{ fontSize: 10, color: deepestHole?.type === 'same_tab' ? '#a78bfa' : '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>
+              {deepestHole?.type === 'same_tab' ? '⟳ SAME TAB SPIRAL' : 'RABBIT HOLE DETECTED'}
+            </div>
             <h2 style={{ fontSize: 42, fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: 16, fontFamily: "'Syne', sans-serif" }}>THE<br />WORM<br />HOLE</h2>
             {deepestHole ? (
               <>
@@ -892,11 +934,45 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.origin_cluster))}66`, color: hex(cc(deepestHole.origin_cluster)), fontFamily: "'Space Mono', monospace" }}>{deepestHole.origin_cluster.toUpperCase()}</span>
-                  <span style={{ color: '#1e3a5f', fontSize: 12 }}>{'→'.repeat(Math.min(deepestHole.max_depth, 5))}</span>
-                  <span style={{ fontSize: 10, padding: '3px 8px', border: `1px solid ${hex(cc(deepestHole.exit_cluster))}66`, color: hex(cc(deepestHole.exit_cluster)), fontFamily: "'Space Mono', monospace" }}>{deepestHole.exit_cluster.toUpperCase()}</span>
-                </div>
+                {/* Full cluster trail */}
+                {(() => {
+                  const path = dedupeClusters(deepestHole.chain)
+                  return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                      {path.map((c, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 9, padding: '2px 6px', border: `1px solid ${hex(cc(c))}66`, color: hex(cc(c)), fontFamily: "'Space Mono', monospace" }}>{c.toUpperCase()}</span>
+                          {idx < path.length - 1 && <span style={{ color: '#1e3a5f', fontSize: 10 }}>→</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+                {/* Focused vs lost time split */}
+                {(() => {
+                  const si = shiftIdx(deepestHole.chain)
+                  if (si < 0) return (
+                    <p style={{ fontSize: 9, color: '#34d399', fontFamily: "'Space Mono', monospace", marginTop: 14 }}>✓ NO DISTRACTION DETECTED</p>
+                  )
+                  const focusedTime = deepestHole.chain.slice(0, si).reduce((s, n) => s + n.time_spent, 0)
+                  const lostTime    = deepestHole.chain.slice(si).reduce((s, n) => s + n.time_spent, 0)
+                  const total = focusedTime + lostTime || 1
+                  const pct = Math.round((focusedTime / total) * 100)
+                  return (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>
+                        FOCUS LOST AT HOP {si + 1}
+                      </div>
+                      <div style={{ height: 3, background: '#0a1224', borderRadius: 99, overflow: 'hidden', marginBottom: 6 }}>
+                        <div style={{ height: 3, width: '100%', background: `linear-gradient(to right, #34d399 ${pct}%, #f87171 ${pct}%)` }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 9, color: '#34d399', fontFamily: "'Space Mono', monospace" }}>{fmt(focusedTime)} focused</span>
+                        <span style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace" }}>{fmt(lostTime)} lost</span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </>
             ) : (
               <p style={{ color: '#334155', fontSize: 12, fontFamily: "'Space Mono', monospace" }}>BROWSE MORE TO DETECT RABBIT HOLES</p>
@@ -906,25 +982,49 @@ export default function App() {
           {deepestHole && (
             <div style={{ flex: 1, maxHeight: '70vh', overflowY: 'auto' }}>
               <div style={{ position: 'relative', paddingLeft: 20 }}>
-                <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'linear-gradient(to bottom, #60a5fa, #f87171)' }} />
-                {deepestHole.chain.map((node, i) => (
-                  <div key={i} style={{ position: 'relative', marginBottom: 16, paddingLeft: 24, animation: `fade-up 0.5s ease ${i * 0.08}s both` }}>
-                    <div style={{ position: 'absolute', left: 0, top: 4, width: 14, height: 14, borderRadius: '50%', background: node.is_distraction ? '#f87171' : hex(cc(node.cluster)), boxShadow: `0 0 ${node.is_distraction ? 10 : 6}px ${node.is_distraction ? '#f87171' : hex(cc(node.cluster))}`, border: '2px solid #020817' }} />
-                    <div style={{ background: node.is_distraction ? 'rgba(248,113,113,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${node.is_distraction ? '#f8717122' : '#1e293b'}`, padding: '8px 12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: node.is_distraction ? '#f87171' : 'white', flex: 1, paddingRight: 8 }}>
-                          {node.title.length > 50 ? node.title.slice(0, 50) + '…' : node.title}
-                        </p>
-                        {node.time_spent > 0 && <span style={{ fontSize: 9, color: '#475569', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>{fmt(node.time_spent)}</span>}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                        <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{node.domain}</span>
-                        <span style={{ fontSize: 9, color: hex(cc(node.cluster)), fontFamily: "'Space Mono', monospace" }}>● {node.cluster}</span>
-                        {node.is_distraction && <span style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace" }}>⚠ DISTRACTION</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {(() => {
+                  const si = shiftIdx(deepestHole.chain)
+                  const pct = si > 0 ? Math.round((si / deepestHole.chain.length) * 100) : 0
+                  const lineGrad = si < 0
+                    ? '#60a5fa'
+                    : si === 0 ? '#f87171'
+                    : `linear-gradient(to bottom, #34d399 0%, #34d399 ${pct}%, #f87171 ${pct}%, #f87171 100%)`
+                  return (
+                    <>
+                      <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: lineGrad }} />
+                      {deepestHole.chain.map((node, i) => (
+                        <div key={i}>
+                          {i === si && si > 0 && (
+                            <div style={{ position: 'relative', marginBottom: 12, paddingLeft: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ flex: 1, height: 1, background: '#f8717133' }} />
+                              <span style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace", letterSpacing: 2, flexShrink: 0 }}>FOCUS LOST</span>
+                              <div style={{ flex: 1, height: 1, background: '#f8717133' }} />
+                            </div>
+                          )}
+                          <div style={{ position: 'relative', marginBottom: 16, paddingLeft: 24, animation: `fade-up 0.5s ease ${i * 0.08}s both` }}>
+                            <div style={{ position: 'absolute', left: 0, top: 4, width: 14, height: 14, borderRadius: '50%', background: node.is_distraction ? '#f87171' : hex(cc(node.cluster)), boxShadow: `0 0 ${node.is_distraction ? 10 : 6}px ${node.is_distraction ? '#f87171' : hex(cc(node.cluster))}`, border: '2px solid #020817' }} />
+                            <div style={{ background: node.is_distraction ? 'rgba(248,113,113,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${node.is_distraction ? '#f8717122' : '#1e293b'}`, padding: '8px 12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: node.is_distraction ? '#f87171' : 'white', flex: 1, paddingRight: 8 }}>
+                                  {node.title.length > 50 ? node.title.slice(0, 50) + '…' : node.title}
+                                </p>
+                                {node.time_spent > 0 && <span style={{ fontSize: 9, color: '#475569', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>{fmt(node.time_spent)}</span>}
+                              </div>
+                              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{node.domain}</span>
+                                <span style={{ fontSize: 9, color: hex(cc(node.cluster)), fontFamily: "'Space Mono', monospace" }}>● {node.cluster}</span>
+                                {i > 0 && deepestHole.chain[i - 1].cluster !== node.cluster && !node.is_distraction && (
+                                  <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: "'Space Mono', monospace" }}>↻ TOPIC SHIFT</span>
+                                )}
+                                {node.is_distraction && <span style={{ fontSize: 9, color: '#f87171', fontFamily: "'Space Mono', monospace" }}>⚠ DISTRACTION</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           )}

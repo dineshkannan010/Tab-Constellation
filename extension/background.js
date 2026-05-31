@@ -206,6 +206,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!isWebUrl(tab.url)) return;
 
   try {
+    const previousUrl = await recallTabUrl(tabId);
     await rememberTabUrl(tabId, tab.url);
     const session_id = await getSessionId();
 
@@ -224,6 +225,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       title,
       meta_description,
       dom_snippet,
+      // previous URL in this tab — used to build same-tab navigation chains
+      referrer_url: (previousUrl && previousUrl !== tab.url) ? previousUrl : null,
       // New extraction fields — pass through to backend
       og_title: content ? content.og_title : null,
       og_description: content ? content.og_description : null,
