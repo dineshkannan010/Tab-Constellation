@@ -131,14 +131,14 @@ function StarField({ id }: { id: string }) {
 function TWSelector({ idx, onChange }: { idx: number; onChange: (i: number) => void }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginRight: 4 }}>WINDOW</span>
+      <span style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginRight: 4 }}>WINDOW</span>
       {TIME_WINDOWS.map((w, i) => (
         <button key={w.label} onClick={() => onChange(i)} style={{
           fontSize: 10, padding: '3px 8px', borderRadius: 3,
           border: idx === i ? '1px solid #60a5fa55' : '1px solid #1e293b',
           cursor: 'pointer', fontFamily: "'Space Mono', monospace",
           background: idx === i ? '#60a5fa15' : 'transparent',
-          color: idx === i ? '#60a5fa' : '#334155',
+          color: idx === i ? '#60a5fa' : '#64748b',
           transition: 'all 0.15s',
         }}>{w.label}</button>
       ))}
@@ -161,7 +161,7 @@ function ReferrerChain({ nodeId }: { nodeId: string }) {
     <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
       {chain.how_i_got_here.length > 0 && (
         <>
-          <p style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>
+          <p style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 8 }}>
             ← HOW YOU GOT HERE <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -177,7 +177,7 @@ function ReferrerChain({ nodeId }: { nodeId: string }) {
       )}
       {chain.led_to.length > 0 && (
         <>
-          <p style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginTop: 10, marginBottom: 8 }}>
+          <p style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginTop: 10, marginBottom: 8 }}>
             → LED TO <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -238,6 +238,7 @@ export default function App() {
   // Fetch all nodes (constellation uses its own window to filter client-side)
   useEffect(() => {
     const load = () => {
+      if (selected) return  // Don't disturb the user's active inspection
       fetch(`${API}/api/v1/nodes/all?limit=200`)
         .then(r => r.json())
         .then(d => { setAllNodes(d.nodes ?? []); setLoading(false) })
@@ -246,7 +247,7 @@ export default function App() {
     load()
     const iv = setInterval(load, 30000)
     return () => clearInterval(iv)
-  }, [])
+  }, [selected])
 
   // Constellation filter — cluster + time window (client-side on allNodes)
   useEffect(() => {
@@ -543,7 +544,7 @@ export default function App() {
     border: active ? `1px solid ${color}44` : '1px solid #1e293b',
     cursor: 'pointer', fontFamily: "'Space Mono', monospace",
     background: active ? `${color}11` : 'transparent',
-    color: active ? color : '#475569', transition: 'all 0.2s',
+    color: active ? color : '#94a3b8', transition: 'all 0.2s',
   } as React.CSSProperties)
 
   if (loading && allNodes.length === 0) {
@@ -582,7 +583,7 @@ export default function App() {
                   {node.time_spent > 0 && <span style={{ fontSize: 9, color: '#475569', fontFamily: "'Space Mono', monospace", flexShrink: 0 }}>{fmt(node.time_spent)}</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{node.domain}</span>
+                  <span style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>{node.domain}</span>
                   <span style={{ fontSize: 9, color: hex(cc(node.cluster)), fontFamily: "'Space Mono', monospace" }}>● {node.cluster}</span>
                   {i > 0 && rh.chain[i-1].cluster !== node.cluster && !node.is_distraction && (
                     <span style={{ fontSize: 9, color: '#fbbf24', fontFamily: "'Space Mono', monospace" }}>↻ TOPIC SHIFT</span>
@@ -611,7 +612,7 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
                 <h1 style={{ color: 'white', fontSize: 18, fontWeight: 800, letterSpacing: '-0.5px', fontFamily: "'Syne', sans-serif" }}>TAB CONSTELLATION</h1>
-                <span style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace" }}>{nodes.length} nodes</span>
+                <span style={{ fontSize: 10, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>{nodes.length} nodes</span>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input type="text" placeholder="semantic search..." value={searchQuery}
@@ -653,7 +654,7 @@ export default function App() {
         {loading && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
             <div style={{ width: 40, height: 40, border: '2px solid #1e293b', borderTop: '2px solid #60a5fa', borderRadius: '50%', animation: 'spin-slow 1s linear infinite' }} />
-            <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>INITIALIZING CONSTELLATION...</p>
+            <p style={{ color: '#64748b', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>INITIALIZING CONSTELLATION...</p>
           </div>
         )}
 
@@ -663,7 +664,7 @@ export default function App() {
             <p style={{ fontWeight: 600, margin: 0, fontFamily: "'Syne', sans-serif" }}>{hovered.title}</p>
             <p style={{ margin: '3px 0 0', color: '#475569', fontSize: 10, fontFamily: "'Space Mono', monospace" }}>
               {hovered.domain}<span style={{ color: hex(cc(hovered.cluster)), margin: '0 6px' }}>●</span>{hovered.cluster.toUpperCase()}
-              {hovered.time_spent > 0 && <span style={{ color: '#334155', marginLeft: 8 }}>{fmt(hovered.time_spent)}</span>}
+              {hovered.time_spent > 0 && <span style={{ color: '#64748b', marginLeft: 8 }}>{fmt(hovered.time_spent)}</span>}
             </p>
           </div>
         )}
@@ -673,10 +674,10 @@ export default function App() {
           <div style={{ position: 'absolute', top: 120, right: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 10, padding: '2px 8px', border: `1px solid ${hex(cc(selected.cluster))}44`, color: hex(cc(selected.cluster)), fontFamily: "'Space Mono', monospace" }}>{selected.cluster.toUpperCase()}</span>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 16, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer' }}>✕</button>
             </div>
             <p style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.4, marginBottom: 4, fontFamily: "'Syne', sans-serif" }}>{selected.title}</p>
-            <p style={{ color: '#334155', fontSize: 10, marginBottom: 12, fontFamily: "'Space Mono', monospace" }}>{selected.domain}</p>
+            <p style={{ color: '#94a3b8', fontSize: 10, marginBottom: 12, fontFamily: "'Space Mono', monospace" }}>{selected.domain}</p>
             {selected.meta_description && (
               <p style={{ color: '#475569', fontSize: 10, lineHeight: 1.6, marginBottom: 12, borderLeft: '2px solid #1e293b', paddingLeft: 8 }}>
                 {selected.meta_description.slice(0, 100)}…
@@ -685,12 +686,12 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
               {([['FOCUS',`${(selected.focus_score*100).toFixed(0)}%`],['TIME',fmt(selected.time_spent??0)],['VISITS',String(selected.visit_count??1)],['DEPTH',String(selected.depth)],['DISTRACTION',selected.is_distraction?'⚠ YES':'✓ NO'],['ESCAPE',selected.is_escape_node?'🚪 YES':'—']] as [string,string][]).map(([label,val])=>(
                 <div key={label} style={{ background: '#0a1224', padding: '7px 10px' }}>
-                  <p style={{ margin: 0, color: '#334155', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>{label}</p>
+                  <p style={{ margin: 0, color: '#94a3b8', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>{label}</p>
                   <p style={{ margin: '3px 0 0', fontWeight: 600, fontSize: 12 }}>{val}</p>
                 </div>
               ))}
             </div>
-            <a href={selected.url} target="_blank" rel="noreferrer" style={{ display: 'block', color: '#60a5fa', fontSize: 10, textDecoration: 'none', fontFamily: "'Space Mono', monospace", opacity: 0.7 }}>
+            <a href={selected.url} target="_blank" rel="noreferrer" style={{ display: 'block', color: '#7dd3fc', fontSize: 10, textDecoration: 'none', fontFamily: "'Space Mono', monospace" }}>
               ↗ {selected.url.slice(0, 50)}{selected.url.length > 50 ? '…' : ''}
             </a>
             {/* Session Path — Neo4j FOLLOWED_BY chain */}
@@ -698,9 +699,9 @@ export default function App() {
               <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <p style={{ fontSize: 9, color: '#60a5fa', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>
-                    SESSION PATH <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
+                    SESSION PATH <span style={{ color: '#64748b' }}>(Neo4j)</span>
                   </p>
-                  <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
+                  <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: "'Space Mono', monospace" }}>
                     {sessionPath.edge_count} HOPS
                   </span>
                 </div>
@@ -733,7 +734,7 @@ export default function App() {
                             {isFirst && <span style={{ color: '#fbbf24', marginRight: 4 }}>●</span>}
                             {n.title}
                           </p>
-                          <p style={{ margin: 0, fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
+                          <p style={{ margin: 0, fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>
                             {n.domain}
                             {n.is_distraction && <span style={{ color: '#f87171', marginLeft: 6 }}>⚠</span>}
                           </p>
@@ -752,26 +753,26 @@ export default function App() {
           <div style={{ position: 'absolute', top: 120, left: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "'Syne', sans-serif" }}>🧠 FOCUS REPORT</span>
-              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 16, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ marginBottom: 14 }}><TWSelector idx={twPanel} onChange={setTwPanel} /></div>
             {panelFocus ? (
               <>
                 <div style={{ textAlign: 'center', marginBottom: 16 }}>
                   <div style={{ fontSize: 48, fontWeight: 800, color: panelFocus.avg_focus > 0.6 ? '#34d399' : '#f87171', fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{(panelFocus.avg_focus*100).toFixed(0)}%</div>
-                  <div style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", marginTop: 4 }}>AVG FOCUS SCORE</div>
+                  <div style={{ fontSize: 10, color: '#64748b', fontFamily: "'Space Mono', monospace", marginTop: 4 }}>AVG FOCUS SCORE</div>
                 </div>
                 <div style={{ height: 4, background: '#0a1224', borderRadius: 99, marginBottom: 16, overflow: 'hidden' }}>
                   <div style={{ height: 4, background: 'linear-gradient(to right, #34d399, #60a5fa)', width: `${panelFocus.avg_focus*100}%` }} />
                 </div>
                 {([['TOTAL TIME',fmt(panelFocus.total_time)],['FOCUS TIME',fmt(panelFocus.focus_time)],['TIME LOST',fmt(panelFocus.distraction_time)]] as [string,string][]).map(([l,v])=>(
                   <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #0a1224' }}>
-                    <span style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{l}</span>
+                    <span style={{ fontSize: 10, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>{l}</span>
                     <span style={{ fontSize: 11, fontWeight: 600 }}>{v}</span>
                   </div>
                 ))}
               </>
-            ) : <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>LOADING...</p>}
+            ) : <p style={{ color: '#64748b', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>LOADING...</p>}
           </div>
         )}
 
@@ -779,11 +780,11 @@ export default function App() {
           <div style={{ position: 'absolute', top: 120, left: 14, width: 300, maxHeight: 'calc(100vh - 150px)', background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "'Syne', sans-serif" }}>🐇 RABBIT HOLES</span>
-              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 16, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ marginBottom: 14 }}><TWSelector idx={twPanel} onChange={setTwPanel} /></div>
             {panelRabbit.length === 0
-              ? <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>NO DEEP SESSIONS IN THIS WINDOW</p>
+              ? <p style={{ color: '#64748b', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>NO DEEP SESSIONS IN THIS WINDOW</p>
               : panelRabbit.map((rh, i) => (
                 <div key={i} style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid #0a1224' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -797,7 +798,7 @@ export default function App() {
                       <span style={{ fontSize: 10, color: n.is_distraction?'#f87171':'#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
                     </div>
                   ))}
-                  {rh.chain.length > 4 && <p style={{ fontSize: 9, color: '#334155', marginTop: 4, fontFamily: "'Space Mono', monospace" }}>+{rh.chain.length-4} more</p>}
+                  {rh.chain.length > 4 && <p style={{ fontSize: 9, color: '#64748b', marginTop: 4, fontFamily: "'Space Mono', monospace" }}>+{rh.chain.length-4} more</p>}
                 </div>
               ))}
           </div>
@@ -807,22 +808,22 @@ export default function App() {
           <div style={{ position: 'absolute', top: 120, left: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ fontWeight: 700, fontSize: 13, fontFamily: "'Syne', sans-serif" }}>⚡ DISTRACTION FINGERPRINT</span>
-              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#334155', fontSize: 16, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setPanel('none')} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ marginBottom: 14 }}><TWSelector idx={twPanel} onChange={setTwPanel} /></div>
             {panelDistract ? (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
                   <div style={{ background: '#0a1224', padding: '10px 12px' }}>
-                    <p style={{ margin: 0, color: '#334155', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>HIJACKED TABS</p>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>HIJACKED TABS</p>
                     <p style={{ margin: '4px 0 0', fontWeight: 800, fontSize: 24, color: '#f87171', fontFamily: "'Syne', sans-serif" }}>{panelDistract.total}</p>
                   </div>
                   <div style={{ background: '#0a1224', padding: '10px 12px' }}>
-                    <p style={{ margin: 0, color: '#334155', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>TIME LOST</p>
+                    <p style={{ margin: 0, color: '#64748b', fontSize: 9, fontFamily: "'Space Mono', monospace" }}>TIME LOST</p>
                     <p style={{ margin: '4px 0 0', fontWeight: 800, fontSize: 24, color: '#f87171', fontFamily: "'Syne', sans-serif" }}>{fmt(panelDistract.time_lost)}</p>
                   </div>
                 </div>
-                <p style={{ fontSize: 10, color: '#334155', marginBottom: 10, fontFamily: "'Space Mono', monospace" }}>TOP OFFENDERS</p>
+                <p style={{ fontSize: 10, color: '#64748b', marginBottom: 10, fontFamily: "'Space Mono', monospace" }}>TOP OFFENDERS</p>
                 {panelDistract.by_domain.slice(0,5).map((d,i) => (
                   <div key={i} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
@@ -835,7 +836,7 @@ export default function App() {
                   </div>
                 ))}
               </>
-            ) : <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>LOADING...</p>}
+            ) : <p style={{ color: '#64748b', fontSize: 11, fontFamily: "'Space Mono', monospace" }}>LOADING...</p>}
           </div>
         )}
 
@@ -843,8 +844,8 @@ export default function App() {
         {!loading && nodes.length > 0 && (
           <div style={{ position: 'absolute', bottom: 24, left: '50%', animation: 'scroll-bounce 2s ease-in-out infinite', zIndex: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 9, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>EXPLORE DEEPER</span>
-              <span style={{ color: '#1e3a5f', fontSize: 16 }}>↓</span>
+              <span style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>EXPLORE DEEPER</span>
+              <span style={{ color: '#64748b', fontSize: 16 }}>↓</span>
             </div>
           </div>
         )}
@@ -863,11 +864,11 @@ export default function App() {
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 1100, width: '92%', display: 'flex', gap: 48, alignItems: 'flex-start' }}>
           {/* Left: title + time window */}
           <div style={{ flex: '0 0 220px', paddingTop: 8 }}>
-            <div style={{ fontSize: 10, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>RABBIT HOLES DETECTED</div>
+            <div style={{ fontSize: 10, color: '#3b6eb1', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 12 }}>RABBIT HOLES DETECTED</div>
             <h2 style={{ fontSize: 40, fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: 20, fontFamily: "'Syne', sans-serif" }}>THE<br />WORM<br />HOLE</h2>
             <TWSelector idx={twWormhole} onChange={setTwWormhole} />
             {rabbitHoles.length === 0 && (
-              <p style={{ color: '#334155', fontSize: 11, fontFamily: "'Space Mono', monospace", marginTop: 20 }}>NO RABBIT HOLES IN THIS WINDOW</p>
+              <p style={{ color: '#64748b', fontSize: 11, fontFamily: "'Space Mono', monospace", marginTop: 20 }}>NO RABBIT HOLES IN THIS WINDOW</p>
             )}
           </div>
 
@@ -894,7 +895,7 @@ export default function App() {
                     {/* Card header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>#{i + 1}</span>
+                        <span style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>#{i + 1}</span>
                         <span style={{ fontSize: 9, color: rh.type==='same_tab'?'#a78bfa':'#60a5fa', fontFamily: "'Space Mono', monospace", letterSpacing: 1 }}>
                           {rh.type==='same_tab'?'⟳ SPIRAL':'⎋ CHAIN'}
                         </span>
@@ -915,7 +916,7 @@ export default function App() {
                         ['TABS', rh.node_count],
                       ].map(([l,v]) => (
                         <div key={String(l)}>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: isActive?'#60a5fa':'#334155', fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{v}</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: isActive?'#60a5fa':'#64748b', fontFamily: "'Syne', sans-serif", lineHeight: 1 }}>{v}</div>
                           <div style={{ fontSize: 8, color: '#1e3a5f', fontFamily: "'Space Mono', monospace" }}>{l}</div>
                         </div>
                       ))}
@@ -935,7 +936,7 @@ export default function App() {
                           {idx < Math.min(path.length, 4) - 1 && <span style={{ fontSize: 8, color: '#1e3a5f' }}>→</span>}
                         </div>
                       ))}
-                      {path.length > 4 && <span style={{ fontSize: 8, color: '#334155', fontFamily: "'Space Mono', monospace" }}>+{path.length-4}</span>}
+                      {path.length > 4 && <span style={{ fontSize: 8, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>+{path.length-4}</span>}
                     </div>
 
                     {/* Focus/lost bar */}
@@ -960,7 +961,7 @@ export default function App() {
           {/* Right: expanded chain detail */}
           {rabbitHoles[expandedHole] && (
             <div style={{ flex: 1, maxHeight: '75vh', overflowY: 'auto' }}>
-              <div style={{ fontSize: 9, color: '#1e3a5f', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 4 }}>
+              <div style={{ fontSize: 9, color: '#3b6eb1', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 4 }}>
                 CHAIN DETAIL — #{expandedHole + 1}
               </div>
               <p style={{ fontSize: 13, color: '#64748b', fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>
@@ -975,7 +976,7 @@ export default function App() {
                 ].map(([l,v]) => (
                   <div key={String(l)}>
                     <div style={{ fontSize: 26, fontWeight: 800, color: '#60a5fa', fontFamily: "'Syne', sans-serif" }}>{v}</div>
-                    <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>{l}</div>
+                    <div style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace" }}>{l}</div>
                   </div>
                 ))}
               </div>
@@ -1026,7 +1027,7 @@ export default function App() {
                 {distraction.by_cluster.slice(0,3).map((c,i) => (
                   <div key={i} style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 22, fontWeight: 800, color: '#f87171', fontFamily: "'Syne', sans-serif" }}>{c.count}</div>
-                    <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", marginTop: 2 }}>{c.cluster.toUpperCase()}</div>
+                    <div style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", marginTop: 2 }}>{c.cluster.toUpperCase()}</div>
                   </div>
                 ))}
               </div>
@@ -1078,19 +1079,19 @@ export default function App() {
                   <circle cx="60" cy="60" r="50" fill="none" stroke="#0f172a" strokeWidth="8" />
                   <circle cx="60" cy="60" r="50" fill="none" stroke={focusSummary.avg_focus>0.6?'#34d399':'#f87171'} strokeWidth="8" strokeLinecap="round" strokeDasharray="314" strokeDashoffset={314-(314*focusSummary.avg_focus)} transform="rotate(-90 60 60)" />
                   <text x="60" y="55" textAnchor="middle" fill="white" fontSize="20" fontWeight="800" fontFamily="Syne, sans-serif">{(focusSummary.avg_focus*100).toFixed(0)}%</text>
-                  <text x="60" y="72" textAnchor="middle" fill="#334155" fontSize="8" fontFamily="Space Mono, monospace">FOCUS SCORE</text>
+                  <text x="60" y="72" textAnchor="middle" fill="#64748b" fontSize="8" fontFamily="Space Mono, monospace">FOCUS SCORE</text>
                 </svg>
               </div>
               {([['NODES TRACKED',String(focusSummary.total_nodes),'#60a5fa'],['FOCUS TIME',fmt(focusSummary.focus_time),'#34d399'],['TIME LOST',fmt(focusSummary.distraction_time),'#f87171'],['DISTRACTIONS',String(focusSummary.distraction_nodes),'#f97316'],['EFFICIENCY',`${((focusSummary.focus_time/(focusSummary.total_time||1))*100).toFixed(0)}%`,'#a78bfa']] as [string,string,string][]).map(([label,val,col])=>(
                 <div key={label} style={{ background:'#0a1224',padding:'24px 28px',borderLeft:`2px solid ${col}44` }}>
-                  <div style={{ fontSize:9,color:'#334155',fontFamily:"'Space Mono', monospace",letterSpacing:2,marginBottom:8 }}>{label}</div>
+                  <div style={{ fontSize:9,color:'#64748b',fontFamily:"'Space Mono', monospace",letterSpacing:2,marginBottom:8 }}>{label}</div>
                   <div style={{ fontSize:28,fontWeight:800,color:col,fontFamily:"'Syne', sans-serif" }}>{val}</div>
                 </div>
               ))}
             </div>
           )}
           <div style={{ marginTop: 2, background: '#0a1224', padding: '20px 28px' }}>
-            <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 16 }}>BROWSING SIGNATURE — ALL TIME</div>
+            <div style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 16 }}>BROWSING SIGNATURE — ALL TIME</div>
             <div style={{ display: 'flex', height: 8, overflow: 'hidden' }}>
               {clusters.map(cluster => {
                 const count = allNodes.filter(n=>n.cluster===cluster).length
@@ -1102,7 +1103,7 @@ export default function App() {
                 <div key={cluster} style={{ display:'flex',alignItems:'center',gap:5 }}>
                   <div style={{ width:6,height:6,background:hex(cc(cluster)),borderRadius:'50%' }} />
                   <span style={{ fontSize:10,color:'#475569',fontFamily:"'Space Mono', monospace" }}>
-                    {cluster} <span style={{ color:'#334155' }}>({allNodes.filter(n=>n.cluster===cluster).length})</span>
+                    {cluster} <span style={{ color:'#64748b' }}>({allNodes.filter(n=>n.cluster===cluster).length})</span>
                   </span>
                 </div>
               ))}
@@ -1120,9 +1121,9 @@ export default function App() {
           ))}
         </div>
         <div style={{ position: 'relative', zIndex: 10, maxWidth: 700, width: '90%', textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 16 }}>SECTOR: FORGOTTEN</div>
+          <div style={{ fontSize: 10, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 3, marginBottom: 16 }}>SECTOR: FORGOTTEN</div>
           <h2 style={{ fontSize: 56, fontWeight: 800, color: 'white', lineHeight: 0.9, marginBottom: 24, fontFamily: "'Syne', sans-serif" }}>THE<br />VOID</h2>
-          <p style={{ fontSize: 14, color: '#334155', lineHeight: 1.8, marginBottom: 40, fontFamily: "'Syne', sans-serif" }}>
+          <p style={{ fontSize: 14, color: '#64748b', lineHeight: 1.8, marginBottom: 40, fontFamily: "'Syne', sans-serif" }}>
             Some tabs are opened with great intention.<br />Then never returned to.<br />
             They drift here — <span style={{ color:'#475569' }}>dimming slowly in the dark.</span>
           </p>
@@ -1130,25 +1131,25 @@ export default function App() {
             {([['TOTAL NODES',String(allNodes.length)],['BROWSED TODAY',String(allNodes.filter(n=>n.days_since_visit===0).length)],['FADING',String(allNodes.filter(n=>n.days_since_visit>7).length)]] as [string,string][]).map(([l,v])=>(
               <div key={l} style={{ background:'#0a1224',padding:'20px 16px',textAlign:'center' }}>
                 <div style={{ fontSize:32,fontWeight:800,color:'white',fontFamily:"'Syne', sans-serif" }}>{v}</div>
-                <div style={{ fontSize:9,color:'#334155',fontFamily:"'Space Mono', monospace",marginTop:6 }}>{l}</div>
+                <div style={{ fontSize:9,color:'#64748b',fontFamily:"'Space Mono', monospace",marginTop:6 }}>{l}</div>
               </div>
             ))}
           </div>
           {allNodes.filter(n=>n.days_since_visit>7).length > 0 && (
             <div style={{ background: '#0a1224', padding: 20 }}>
-              <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 14 }}>FADING SIGNALS</div>
+              <div style={{ fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 14 }}>FADING SIGNALS</div>
               {allNodes.filter(n=>n.days_since_visit>7).slice(0,5).map((n,i) => (
                 <div key={i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #0f172a' }}>
                   <div style={{ display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0 }}>
                     <div style={{ width:6,height:6,borderRadius:'50%',background:hex(cc(n.cluster)),opacity:0.4,flexShrink:0 }} />
-                    <span style={{ fontSize:11,color:'#334155',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{n.title}</span>
+                    <span style={{ fontSize:11,color:'#64748b',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{n.title}</span>
                   </div>
-                  <span style={{ fontSize:9,color:'#1e293b',fontFamily:"'Space Mono', monospace",flexShrink:0,marginLeft:12 }}>{n.days_since_visit}D AGO</span>
+                  <span style={{ fontSize:9,color:'#64748b',fontFamily:"'Space Mono', monospace",flexShrink:0,marginLeft:12 }}>{n.days_since_visit}D AGO</span>
                 </div>
               ))}
             </div>
           )}
-          <div style={{ marginTop: 40, fontSize: 9, color: '#1e293b', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>
+          <div style={{ marginTop: 40, fontSize: 9, color: '#64748b', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>
             TAB CONSTELLATION · BUILT WITH QDRANT VECTOR SEARCH
           </div>
         </div>

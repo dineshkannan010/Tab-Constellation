@@ -34,7 +34,7 @@
     $("tabs").textContent = String(s.tabs_this_session || 0);
     $("pending").textContent = String(s.pending_queue_size || 0);
     $("last-shot").textContent = ageString(s.last_screenshot_ts);
-    $("backfilled").textContent = s.history_backfilled ? "done" : "not yet";
+    // $("backfilled").textContent = s.history_backfilled ? "done" : "not yet";
 
     const dot = $("health-dot");
     const label = $("health-label");
@@ -54,11 +54,11 @@
     window.close();
   });
 
-  $("btn-backfill").addEventListener("click", async () => {
-    setFooter("Backfill kicked off…");
-    await send("POPUP_RERUN_BACKFILL");
-    setTimeout(refresh, 500);
-  });
+  // $("btn-backfill").addEventListener("click", async () => {
+  //   setFooter("Backfill kicked off…");
+  //   await send("POPUP_RERUN_BACKFILL");
+  //   setTimeout(refresh, 500);
+  // });
 
   $("btn-flush").addEventListener("click", async () => {
     setFooter("Flushing queue…");
@@ -75,5 +75,5 @@
   });
 
   refresh();
-  setInterval(refresh, 2000);
+  setInterval(refresh, 20000);
 })();
