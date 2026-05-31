@@ -671,7 +671,20 @@ export default function App() {
 
         {/* Selected node panel */}
         {selected && (
-          <div style={{ position: 'absolute', top: 120, right: 14, width: 280, background: 'rgba(2,8,23,0.97)', border: '1px solid #1e293b', borderRadius: 4, padding: 16, color: 'white', zIndex: 20 }}>
+           <div style={{
+              position: 'absolute',
+              top: 120,
+              right: 14,
+              width: 280,
+              maxHeight: 'calc(100vh - 140px)',
+              overflowY: 'auto',
+              background: 'rgba(2,8,23,0.97)',
+              border: '1px solid #1e293b',
+              borderRadius: 4,
+              padding: 16,
+              color: 'white',
+              zIndex: 20,
+            }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 10, padding: '2px 8px', border: `1px solid ${hex(cc(selected.cluster))}44`, color: hex(cc(selected.cluster)), fontFamily: "'Space Mono', monospace" }}>{selected.cluster.toUpperCase()}</span>
               <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 16, cursor: 'pointer' }}>✕</button>
