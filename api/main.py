@@ -1,13 +1,4 @@
-"""Tab Constellation API entrypoint.
-
-Security:
-  • Bind to 127.0.0.1 only (loopback). See api/README.md for the run cmd.
-  • CORS is restricted to the local web app origin. The Chrome extension
-    bypasses CORS via host_permissions, so chrome-extension://* origins
-    are NOT in the allow-list (and don't need to be).
-  • Request bodies are capped at MAX_BODY_BYTES to bound memory use.
-  • All /ingest/* models validate field lengths and aware timestamps.
-"""
+"""Tab Constellation API entrypoint."""
 
 from __future__ import annotations
 
@@ -17,11 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from routes.ingest import ensure_dirs, router as ingest_router
+from routes.onboarding import router as onboarding_router
 
-# Load api/.env if present (kept around for future env config, e.g. Qdrant URL).
 load_dotenv()
 
-MAX_BODY_BYTES = 5 * 1024 * 1024  # 5 MB; screenshot field is capped at ~4 MB.
+MAX_BODY_BYTES = 5 * 1024 * 1024
 
 app = FastAPI(title="Tab Constellation API", version="0.1.0")
 
@@ -61,3 +52,4 @@ def health() -> dict[str, str]:
 
 
 app.include_router(ingest_router)
+app.include_router(onboarding_router)

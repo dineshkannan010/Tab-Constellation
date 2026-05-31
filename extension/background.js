@@ -206,6 +206,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!isWebUrl(tab.url)) return;
 
   try {
+    const previousUrl = await recallTabUrl(tabId);
     await rememberTabUrl(tabId, tab.url);
     const session_id = await getSessionId();
 
@@ -224,6 +225,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       title,
       meta_description,
       dom_snippet,
+      // previous URL in this tab — used to build same-tab navigation chains
+      referrer_url: (previousUrl && previousUrl !== tab.url) ? previousUrl : null,
+      // New extraction fields — pass through to backend
+      og_title: content ? content.og_title : null,
+      og_description: content ? content.og_description : null,
+      og_site_name: content ? content.og_site_name : null,
+      h1: content ? content.h1 : null,
+      path_tokens: content ? content.path_tokens : "",
       timestamp: isoNow(),
       event_type: "tab_loaded",
     });
@@ -315,35 +324,34 @@ async function captureScreenshotTick() {
 
 // ------------------------- history backfill -------------------------
 
-async function runHistoryBackfill() {
-  try {
-    log.info("history backfill starting");
-    const session_id = await getSessionId();
-    // TODO: bump back to 30 days once we're past local-dev testing.
-    const startTime = Date.now() - 1 * 24 * 60 * 60 * 1000;
-    const items = await chrome.history.search({ text: "", startTime, maxResults: 5000 });
-    log.info("history rows:", items.length);
+// async function runHistoryBackfill() {
+//   try {
+//     log.info("history backfill starting");
+//     const session_id = await getSessionId();
+//     const startTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
+//     const items = await chrome.history.search({ text: "", startTime, maxResults: 5000 });
+//     log.info("history rows:", items.length);
 
-    const batchSize = 50;
-    for (let i = 0; i < items.length; i += batchSize) {
-      const slice = items.slice(i, i + batchSize).map((h) => ({
-        url: h.url || "",
-        title: h.title || "",
-        last_visit_time: h.lastVisitTime ? new Date(h.lastVisitTime).toISOString() : isoNow(),
-        visit_count: h.visitCount || 0,
-        typed_count: h.typedCount || 0,
-        domain: domainOf(h.url || ""),
-      }));
-      await post("/ingest/history-batch", { session_id, items: slice });
-      await new Promise((r) => setTimeout(r, 500));
-    }
+//     const batchSize = 50;
+//     for (let i = 0; i < items.length; i += batchSize) {
+//       const slice = items.slice(i, i + batchSize).map((h) => ({
+//         url: h.url || "",
+//         title: h.title || "",
+//         last_visit_time: h.lastVisitTime ? new Date(h.lastVisitTime).toISOString() : isoNow(),
+//         visit_count: h.visitCount || 0,
+//         typed_count: h.typedCount || 0,
+//         domain: domainOf(h.url || ""),
+//       }));
+//       await post("/ingest/history-batch", { session_id, items: slice });
+//       await new Promise((r) => setTimeout(r, 500));
+//     }
 
-    await setLocal({ [HISTORY_FLAG]: true });
-    log.info("history backfill done");
-  } catch (e) {
-    log.error("backfill failed", e);
-  }
-}
+//     await setLocal({ [HISTORY_FLAG]: true });
+//     log.info("history backfill done");
+//   } catch (e) {
+//     log.error("backfill failed", e);
+//   }
+// }
 
 // ------------------------- alarms / lifecycle -------------------------
 
@@ -351,10 +359,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   log.info("onInstalled", details.reason);
   chrome.alarms.create(SCREENSHOT_ALARM, { periodInMinutes: 0.5 });
   chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
-  if (details.reason === "install") {
-    const got = await getLocal(HISTORY_FLAG);
-    if (!got[HISTORY_FLAG]) runHistoryBackfill();
-  }
+  // if (details.reason === "install") {
+  //   const got = await getLocal(HISTORY_FLAG);
+  //   if (!got[HISTORY_FLAG]) runHistoryBackfill();
+  // }
 });
 
 chrome.runtime.onStartup.addListener(() => {
