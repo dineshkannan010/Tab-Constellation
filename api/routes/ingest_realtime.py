@@ -7,6 +7,7 @@ Loads user profile from data/user_profile.json for personalized rules.
 from __future__ import annotations
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from functools import lru_cache
 from neo4j import GraphDatabase
@@ -510,14 +511,18 @@ def process_tab(tab: dict) -> None:
             distraction, visit_count, description,
             dom_snippet, existing_time, cluster,
         )
- 
+
         embed_text = " ".join(filter(None, [
             description, dom_snippet[:200], title, domain
         ]))
         vector = get_embedding_model().encode(
             [embed_text], normalize_embeddings=True
         )[0].tolist()
- 
+
+        # Real visit time so the frontend can filter by hour, not just day.
+        # Prefer the timestamp the extension sent; fall back to now().
+        last_visited_at = tab.get("timestamp") or datetime.now(timezone.utc).isoformat()
+
         payload = {
             "node_id":                   node_id,
             "url":                       url,
@@ -528,6 +533,7 @@ def process_tab(tab: dict) -> None:
             "is_distraction":            distraction,
             "focus_score":               focus,
             "days_since_visit":          0,
+            "last_visited_at":           last_visited_at,
             "visit_count":               visit_count,
             "time_spent":                existing_time,
             "scroll_depth":              0.0,

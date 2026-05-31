@@ -3,13 +3,48 @@ import * as THREE from 'three'
 
 const API = ''
 
+// Sub-day quick-picks (in hours). Days are handled by the 1–30 slider.
+const HOUR_STOPS = [1, 3, 6, 12]
+
+// Hours since a node was last visited. Prefers the real timestamp.
+// When it's missing (legacy node ingested before timestamps existed) we
+// only know the day, so we place it at the END of that day — that keeps
+// such nodes out of the sub-day hour buckets they can't be proven to fit.
+const hoursSince = (n: Node): number => {
+  if (n.last_visited_at) {
+    const t = Date.parse(n.last_visited_at)
+    if (!Number.isNaN(t)) return (Date.now() - t) / 3_600_000
+  }
+  return (n.days_since_visit + 1) * 24
+}
+
+// A node fades once it hasn't been visited in this many hours (7 days).
+const FADING_HOURS = 7 * 24
+
+// True if last visited since the start of *today* (local midnight) — a
+// calendar-day check, not a rolling 24h window. Nodes with no real
+// timestamp can't be confirmed as today, so they don't count.
+const isToday = (n: Node): boolean => {
+  if (!n.last_visited_at) return false
+  const t = Date.parse(n.last_visited_at)
+  if (Number.isNaN(t)) return false
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0)
+  return t >= midnight.getTime()
+}
+
+// Compact "time ago" label for the void list.
+const agoLabel = (n: Node): string => {
+  const h = hoursSince(n)
+  return h < 24 ? `${Math.max(1, Math.round(h))}H AGO` : `${Math.round(h / 24)}D AGO`
+}
+
 // ── Types ──────────────────────────────────────────────────────
 type Node = {
   node_id: string; title: string; domain: string; cluster: string
   focus_score: number; is_distraction: boolean; is_escape_node: boolean
   days_since_visit: number; session_id: string; depth: number
   url: string; visit_count: number; time_spent: number
-  meta_description?: string; tab_id?: string
+  meta_description?: string; tab_id?: string; last_visited_at?: string
 }
 type ChainNode = {
   title: string; domain: string; cluster: string; depth: number
@@ -177,7 +212,7 @@ export default function App() {
   const [selected,      setSelected]      = useState<Node | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [activeCluster, setActiveCluster] = useState<string | null>(null)
-  const [maxDays,       setMaxDays]       = useState(30)
+  const [maxHours,      setMaxHours]      = useState(720)
   const [searchQuery,   setSearchQuery]   = useState('')
   const [searching,     setSearching]     = useState(false)
   const [highlightUrls, setHighlightUrls] = useState<Set<string>>(new Set())
@@ -231,9 +266,9 @@ export default function App() {
   useEffect(() => {
     let f = allNodes
     if (activeCluster) f = f.filter(n => n.cluster === activeCluster)
-    f = f.filter(n => n.days_since_visit <= maxDays)
+    f = f.filter(n => hoursSince(n) <= maxHours)
     setNodes(f)
-  }, [allNodes, activeCluster, maxDays])
+  }, [allNodes, activeCluster, maxHours])
 
   // Preload insights
   useEffect(() => {
@@ -250,7 +285,7 @@ export default function App() {
       const mat = mesh.material as THREE.MeshStandardMaterial
       if (highlightUrls.size === 0) {
         mat.emissiveIntensity = node.is_escape_node ? 1.0 : 0.3
-        mat.opacity = node.days_since_visit > 21 ? 0.2 : 1.0
+        mat.opacity = hoursSince(node) > FADING_HOURS ? 0.2 : 1.0
         mat.color.setHex(cc(node.cluster))
       } else if (highlightUrls.has(node.url)) {
         mat.emissiveIntensity = 2.5; mat.opacity = 1.0
@@ -351,7 +386,7 @@ export default function App() {
         color, emissive: color,
         emissiveIntensity: node.is_escape_node ? 1.2 : node.is_distraction ? 0.5 : 0.25,
         roughness: 0.2, metalness: 0.4, transparent: true,
-        opacity: node.days_since_visit > 21 ? 0.2 : 1.0,
+        opacity: hoursSince(node) > FADING_HOURS ? 0.2 : 1.0,
       })
       const mesh = new THREE.Mesh(geo, mat)
       mesh.position.set(x, y, z); scene.add(mesh)
@@ -685,10 +720,46 @@ export default function App() {
 
           <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ color: '#1e3a5f', fontSize: 10, fontFamily: "'Space Mono', monospace" }}>RANGE</span>
-            <input type="range" min={1} max={90} value={maxDays}
-              onChange={e => setMaxDays(Number(e.target.value))}
-              style={{ width: 90, accentColor: '#60a5fa' }} />
-            <span style={{ color: '#334155', fontSize: 10, fontFamily: "'Space Mono', monospace" }}>{maxDays}D</span>
+
+            {/* Sub-day quick-picks */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'stretch',
+              border: '1px solid #1e293b', borderRadius: 6, overflow: 'hidden',
+              background: '#0b1220',
+            }}>
+              {HOUR_STOPS.map((h, i) => {
+                const active = maxHours === h
+                return (
+                  <button
+                    key={h}
+                    onClick={() => setMaxHours(h)}
+                    title={`Tabs from the last ${h}h`}
+                    style={{
+                      padding: '4px 8px', fontSize: 10, lineHeight: 1,
+                      fontFamily: "'Space Mono', monospace", cursor: 'pointer',
+                      border: 'none', borderRadius: 0,
+                      borderLeft: i ? '1px solid #1e293b' : 'none',
+                      background: active ? '#60a5fa' : 'transparent',
+                      color: active ? '#020817' : '#64748b',
+                      fontWeight: active ? 700 : 400, transition: 'all 0.15s',
+                    }}>
+                    {h}h
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Day slider (1–30) */}
+            <input type="range" min={1} max={30}
+              value={Math.min(30, Math.max(1, Math.round(maxHours / 24)))}
+              onChange={e => setMaxHours(Number(e.target.value) * 24)}
+              title="Days"
+              style={{ width: 100, accentColor: maxHours >= 24 ? '#60a5fa' : '#334155' }} />
+
+            {/* Current selection readout */}
+            <span style={{ color: '#94a3b8', fontSize: 10, fontFamily: "'Space Mono', monospace", minWidth: 28 }}>
+              {maxHours < 24 ? `${maxHours}h` : `${Math.round(maxHours / 24)}d`}
+            </span>
             <div style={{ marginLeft: 12, display: 'flex', gap: 6 }}>
               {([['🧠', 'focus', '#34d399'], ['🐇', 'rabbit', '#60a5fa'], ['⚡', 'distraction', '#f87171']] as [string, Panel, string][]).map(([icon, p, col]) => (
                 <button key={p} onClick={() => setPanel(panel === p ? 'none' : p)} style={btnStyle(panel === p, col)}>
@@ -1151,7 +1222,7 @@ export default function App() {
       <div className="section" style={{ background: '#020817' }}>
         <StarField id="void-stars" />
         <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          {allNodes.filter(n => n.days_since_visit > 7).slice(0, 12).map((n, i) => (
+          {allNodes.filter(n => hoursSince(n) > FADING_HOURS).slice(0, 12).map((n, i) => (
             <div key={i} style={{ position: 'absolute', left: `${10 + (i * 7.5) % 80}%`, top: `${20 + (i * 11) % 60}%`, width: 8 + Math.random() * 12, height: 8 + Math.random() * 12, borderRadius: '50%', background: hex(cc(n.cluster)), opacity: 0.15, animation: `dead-pulse ${3 + Math.random() * 4}s ease-in-out infinite ${Math.random() * 3}s` }} />
           ))}
         </div>
@@ -1168,8 +1239,8 @@ export default function App() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, marginBottom: 32 }}>
             {([
               ['TOTAL NODES', String(allNodes.length)],
-              ['BROWSED TODAY', String(allNodes.filter(n => n.days_since_visit === 0).length)],
-              ['FADING', String(allNodes.filter(n => n.days_since_visit > 7).length)],
+              ['BROWSED TODAY', String(allNodes.filter(isToday).length)],
+              ['FADING', String(allNodes.filter(n => hoursSince(n) > FADING_HOURS).length)],
             ] as [string, string][]).map(([l, v]) => (
               <div key={l} style={{ background: '#0a1224', padding: '20px 16px', textAlign: 'center' }}>
                 <div style={{ fontSize: 32, fontWeight: 800, color: 'white', fontFamily: "'Syne', sans-serif" }}>{v}</div>
@@ -1178,16 +1249,16 @@ export default function App() {
             ))}
           </div>
 
-          {allNodes.filter(n => n.days_since_visit > 7).length > 0 && (
+          {allNodes.filter(n => hoursSince(n) > FADING_HOURS).length > 0 && (
             <div style={{ background: '#0a1224', padding: 20 }}>
               <div style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace", letterSpacing: 2, marginBottom: 14 }}>FADING SIGNALS</div>
-              {allNodes.filter(n => n.days_since_visit > 7).slice(0, 5).map((n, i) => (
+              {allNodes.filter(n => hoursSince(n) > FADING_HOURS).slice(0, 5).map((n, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #0f172a' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: hex(cc(n.cluster)), opacity: 0.4, flexShrink: 0 }} />
                     <span style={{ fontSize: 11, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
                   </div>
-                  <span style={{ fontSize: 9, color: '#1e293b', fontFamily: "'Space Mono', monospace", flexShrink: 0, marginLeft: 12 }}>{n.days_since_visit}D AGO</span>
+                  <span style={{ fontSize: 9, color: '#1e293b', fontFamily: "'Space Mono', monospace", flexShrink: 0, marginLeft: 12 }}>{agoLabel(n)}</span>
                 </div>
               ))}
             </div>
