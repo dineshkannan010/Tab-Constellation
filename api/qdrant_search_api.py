@@ -24,6 +24,9 @@ Endpoints:
   GET  /insights/focus-summary         → overall focus stats (hours window)
 """
 
+import os
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -34,6 +37,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
 
 from qdrant_config import ACTIVE_CONFIG, EMBEDDING_MODEL_NAME, build_embedding_text
+
+load_dotenv()
+
+NEO4J_URI      = "bolt://localhost:7687"
+NEO4J_USER     = "neo4j"
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 
 
 # ─── App setup ─────────────────────────────────────────────────
@@ -638,8 +647,8 @@ def get_referrer_chain(node_id: str):
     try:
         from neo4j import GraphDatabase
         driver = GraphDatabase.driver(
-            "bolt://localhost:7687",
-            auth=("neo4j", "constellation")
+            NEO4J_URI,
+            auth=(NEO4J_USER, NEO4J_PASSWORD)
         )
         with driver.session() as session:
             forward = session.run("""
@@ -703,8 +712,8 @@ def get_session_path(node_id: str):
     try:
         from neo4j import GraphDatabase
         driver = GraphDatabase.driver(
-            "bolt://localhost:7687",
-            auth=("neo4j", "constellation")
+            NEO4J_URI,
+            auth=(NEO4J_USER, NEO4J_PASSWORD)
         )
         with driver.session() as s:
             # Step 1: get session_id for this node
@@ -769,4 +778,4 @@ def get_session_path(node_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("qdrant_search_api:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("qdrant_search_api:app", host="127.0.0.1", port=8001, reload=True)

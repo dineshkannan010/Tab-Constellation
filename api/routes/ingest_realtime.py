@@ -7,6 +7,7 @@ Loads user profile from data/user_profile.json for personalized rules.
 from __future__ import annotations
 import hashlib
 import json
+import os
 from pathlib import Path
 from functools import lru_cache
 from neo4j import GraphDatabase
@@ -19,7 +20,7 @@ COLLECTION_NAME = "tab_constellation"
 VECTOR_DIM      = 384
 NEO4J_URI       = "bolt://localhost:7687"
 NEO4J_USER      = "neo4j"
-NEO4J_PASSWORD  = "constellation"
+NEO4J_PASSWORD  = os.environ["NEO4J_PASSWORD"]
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 NLI_MODEL       = "cross-encoder/nli-MiniLM2-L6-H768"
 

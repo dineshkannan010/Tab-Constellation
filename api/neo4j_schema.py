@@ -5,9 +5,9 @@ Defines the graph schema (constraints, indexes), loads nodes/edges from
 mockData.json, and provides graph traversal queries for Rabbit Hole,
 session paths, and referrer chains.
 
-Run locally with Docker:
+Run locally with Docker (set NEO4J_PASSWORD in .env first):
   docker run -p 7474:7474 -p 7687:7687 \\
-    -e NEO4J_AUTH=neo4j/constellation \\
+    -e NEO4J_AUTH=neo4j/$NEO4J_PASSWORD \\
     neo4j:5
 
 Then open: http://localhost:7474
@@ -22,15 +22,20 @@ Usage:
 """
 
 import json
+import os
 import argparse
 from pathlib import Path
+
+from dotenv import load_dotenv
 from neo4j import GraphDatabase, Driver
+
+load_dotenv()
 
 # ─── Config ────────────────────────────────────────────────────
 
 NEO4J_URI      = "bolt://localhost:7687"
 NEO4J_USER     = "neo4j"
-NEO4J_PASSWORD = "constellation"
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 MOCK_DATA_PATH = Path(__file__).parent / "mockData.json"
 
 # ─── Schema definition ─────────────────────────────────────────

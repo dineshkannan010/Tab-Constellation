@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import time
 import argparse
 import hashlib
@@ -23,16 +24,19 @@ from pathlib import Path
 from datetime import datetime, timezone
 from collections import defaultdict
 
+from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from neo4j import GraphDatabase
+
+load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────
 QDRANT_URL     = "http://localhost:6333"
 COLLECTION_NAME = "tab_constellation"
 NEO4J_URI      = "bolt://localhost:7687"
 NEO4J_USER     = "neo4j"
-NEO4J_PASSWORD = "constellation"
+NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 
 DATA_DIR    = Path(__file__).parent / "data"
 EVENTS_FILE = DATA_DIR / "events.jsonl"

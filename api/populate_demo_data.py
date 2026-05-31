@@ -21,15 +21,19 @@ Options:
 
 import argparse
 import hashlib
+import os
 import random
 import time
 from collections import Counter
 
+from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct, PayloadSchemaType,
 )
 from sentence_transformers import SentenceTransformer
+
+load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────
 QDRANT_URL      = "http://localhost:6333"
@@ -37,7 +41,7 @@ COLLECTION_NAME = "tab_constellation"
 VECTOR_DIM      = 384
 NEO4J_URI       = "bolt://localhost:7687"
 NEO4J_USER      = "neo4j"
-NEO4J_PASS      = "constellation"
+NEO4J_PASS      = os.environ["NEO4J_PASSWORD"]
 EMBED_MODEL     = "sentence-transformers/all-MiniLM-L6-v2"
 
 # ── Site pool ──────────────────────────────────────────────────
