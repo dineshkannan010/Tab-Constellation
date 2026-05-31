@@ -17,6 +17,11 @@ Endpoints:
   GET  /features/escape-hatches  → Escape Hatch list
   GET  /features/rabbit-hole/{session_id} → Rabbit Hole chain
   GET  /nodes/all                → paginated full node list
+
+  # Insight endpoints — all accept ?hours= time window
+  GET  /insights/rabbit-holes          → top rabbit holes (hours window)
+  GET  /insights/distraction-summary   → distraction breakdown (hours window)
+  GET  /insights/focus-summary         → overall focus stats (hours window)
 """
 
 from fastapi import FastAPI, HTTPException, Query
@@ -54,8 +59,6 @@ app.add_middleware(
 def get_qdrant_client() -> QdrantClient:
     cfg = ACTIVE_CONFIG
     if cfg.use_in_memory:
-        # In-memory client loses data on restart — for dev only.
-        # Switch to url= for persistent local server.
         return QdrantClient(":memory:")
     return QdrantClient(url=cfg.url, api_key=cfg.api_key)
 
@@ -69,6 +72,28 @@ def get_embedding_model():
 def embed_query(text: str) -> list[float]:
     model = get_embedding_model()
     return model.encode([text], normalize_embeddings=True)[0].tolist()
+
+
+# ─── Time window helper ────────────────────────────────────────
+
+def hours_to_days(hours: float) -> float:
+    """Convert hours to fractional days for days_since_visit filter."""
+    return hours / 24.0
+
+
+def time_filter(hours: Optional[float]) -> Optional[Filter]:
+    """
+    Return a Qdrant Filter for days_since_visit <= N days.
+    If hours is None, returns None (no filter = all time).
+    days_since_visit is 0 for tabs visited today (real-time ingestion always sets 0).
+    For mock data it's the actual integer days.
+    """
+    if hours is None:
+        return None
+    days = hours_to_days(hours)
+    return Filter(
+        must=[FieldCondition(key="days_since_visit", range=Range(lte=days))]
+    )
 
 
 # ─── Request / Response models ─────────────────────────────────
@@ -102,8 +127,6 @@ class NodePayload(BaseModel):
     meta_description: Optional[str] = None
     tab_id: Optional[str] = None
     referrer_url: str = ""
-    meta_description: Optional[str] = None
-    tab_id: Optional[str] = None
 
 
 class SemanticSearchResult(BaseModel):
@@ -112,10 +135,10 @@ class SemanticSearchResult(BaseModel):
 
 
 class FocusScoreResponse(BaseModel):
-    score: float                        # 0–1 average focus score
-    distraction_ratio: float            # % of nodes that are distractions
-    deep_focus_minutes: int             # total non-distraction time in minutes
-    top_focus_nodes: list[NodePayload]  # highest focus score nodes
+    score: float
+    distraction_ratio: float
+    deep_focus_minutes: int
+    top_focus_nodes: list[NodePayload]
     top_distraction_nodes: list[NodePayload]
 
 
@@ -130,10 +153,6 @@ def health():
 
 @app.post("/api/v1/search/semantic", response_model=list[SemanticSearchResult])
 def semantic_search(req: SemanticSearchRequest):
-    """
-    Embed a text query and return the most similar nodes.
-    Used by: Three.js constellation (hover preview), search bar.
-    """
     client = get_qdrant_client()
     vector = embed_query(req.query)
 
@@ -169,10 +188,6 @@ def semantic_search(req: SemanticSearchRequest):
 
 @app.get("/api/v1/features/focus-score", response_model=FocusScoreResponse)
 def get_focus_score(days: int = Query(default=7, ge=1, le=90)):
-    """
-    Aggregate focus stats for the last N days.
-    Used by: Focus Score Gauge widget.
-    """
     client = get_qdrant_client()
 
     all_nodes, _ = client.scroll(
@@ -192,8 +207,8 @@ def get_focus_score(days: int = Query(default=7, ge=1, le=90)):
     focus_nodes  = [p for p in payloads if not p["is_distraction"]]
     focus_time   = sum(p["time_spent"] for p in focus_nodes)
 
-    sorted_focus  = sorted(focus_nodes,  key=lambda p: p["focus_score"], reverse=True)[:5]
-    sorted_dist   = sorted(distractions, key=lambda p: p["time_spent"],  reverse=True)[:5]
+    sorted_focus = sorted(focus_nodes,  key=lambda p: p["focus_score"], reverse=True)[:5]
+    sorted_dist  = sorted(distractions, key=lambda p: p["time_spent"],  reverse=True)[:5]
 
     return FocusScoreResponse(
         score=round(avg_score, 3),
@@ -208,10 +223,6 @@ def get_focus_score(days: int = Query(default=7, ge=1, le=90)):
 
 @app.get("/api/v1/features/distraction")
 def get_distraction_fingerprint(limit: int = Query(default=50, le=200)):
-    """
-    All distraction nodes with domain and cluster breakdowns.
-    Used by: Distraction Fingerprint chart.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -223,7 +234,6 @@ def get_distraction_fingerprint(limit: int = Query(default=50, le=200)):
     )
     payloads = [r.payload for r in results]
 
-    # Aggregate by domain
     domain_map: dict[str, dict] = {}
     for p in payloads:
         d = p["domain"]
@@ -246,10 +256,6 @@ def get_unresolved_loops(
     max_scroll_depth: float = Query(default=0.9, ge=0.0, le=1.0),
     limit: int = Query(default=50, le=200),
 ):
-    """
-    Pages closed before being read, ordered by staleness.
-    Used by: Unresolved Loops list.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -274,10 +280,6 @@ def get_unresolved_loops(
 
 @app.get("/api/v1/features/guilt-pile")
 def get_guilt_pile(limit: int = Query(default=50, le=200)):
-    """
-    Saved-for-later nodes never revisited, ordered by staleness.
-    Used by: Guilt Pile feature.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -305,10 +307,6 @@ def get_dead_stars(
     threshold_days: int = Query(default=21, ge=1),
     limit: int = Query(default=50, le=200),
 ):
-    """
-    Nodes not visited for threshold_days or more.
-    Used by: Dead Stars — dim nodes in the constellation.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -332,10 +330,6 @@ def get_dead_stars(
 
 @app.get("/api/v1/features/escape-hatches")
 def get_escape_hatches(limit: int = Query(default=20, le=100)):
-    """
-    Nodes that broke focus sessions.
-    Used by: Escape Hatch feature.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -352,10 +346,6 @@ def get_escape_hatches(limit: int = Query(default=20, le=100)):
 
 @app.get("/api/v1/features/rabbit-hole/{session_id}")
 def get_rabbit_hole(session_id: str):
-    """
-    Full node chain for a session, ordered by depth.
-    Used by: Rabbit Hole path visualization in Three.js.
-    """
     client = get_qdrant_client()
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
@@ -369,18 +359,18 @@ def get_rabbit_hole(session_id: str):
     if not chain:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
-    max_depth = max(p["depth"] for p in chain)
-    total_time = sum(p["time_spent"] for p in chain)
+    max_depth      = max(p["depth"] for p in chain)
+    total_time     = sum(p["time_spent"] for p in chain)
     origin_cluster = chain[0]["cluster"] if chain else "unknown"
     exit_cluster   = chain[-1]["cluster"] if chain else "unknown"
 
     return {
-        "session_id":      session_id,
-        "max_depth":       max_depth,
-        "total_time":      total_time,
-        "origin_cluster":  origin_cluster,
-        "exit_cluster":    exit_cluster,
-        "chain":           chain,
+        "session_id":     session_id,
+        "max_depth":      max_depth,
+        "total_time":     total_time,
+        "origin_cluster": origin_cluster,
+        "exit_cluster":   exit_cluster,
+        "chain":          chain,
     }
 
 
@@ -388,14 +378,10 @@ def get_rabbit_hole(session_id: str):
 
 @app.get("/api/v1/nodes/all")
 def get_all_nodes(
-    limit:  int = Query(default=50, le=200),
-    offset: int = Query(default=0, ge=0),
+    limit:   int = Query(default=50, le=200),
+    offset:  int = Query(default=0, ge=0),
     cluster: Optional[str] = None,
 ):
-    """
-    Paginated list of all nodes, optionally filtered by cluster.
-    Used by: Three.js initial constellation load.
-    """
     client = get_qdrant_client()
     filters = []
     if cluster:
@@ -416,6 +402,8 @@ def get_all_nodes(
     }
 
 
+# ─── Chain helper ──────────────────────────────────────────────
+
 def _chain_node(n: dict) -> dict:
     return {
         "title":          n.get("title", ""),
@@ -428,17 +416,26 @@ def _chain_node(n: dict) -> dict:
     }
 
 
+# ─── Insight: Rabbit Holes (with time window) ──────────────────
+
 @app.get("/api/v1/insights/rabbit-holes")
-def get_rabbit_hole_insights():
+def get_rabbit_hole_insights(
+    hours: Optional[float] = Query(default=None, ge=1, description="Time window in hours. Omit for all-time.")
+):
     """
-    Returns two kinds of rabbit holes:
-    - new_tab: opener-chain depth >= 2 (existing behaviour)
-    - same_tab: same-tab navigation chains with a cluster shift
+    Returns top rabbit holes filtered by time window.
+    hours=6  → last 6 hours
+    hours=24 → last 24 hours
+    hours=168 → last 7 days
+    Omit hours → all time
     """
     client = get_qdrant_client()
 
+    scroll_filter = time_filter(hours)
+
     all_results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
+        scroll_filter=scroll_filter,
         limit=500,
         with_payload=True,
     )
@@ -470,14 +467,12 @@ def get_rabbit_hole_insights():
     # ── Same-tab rabbit holes (referrer_url chain + cluster shift) ──
     url_map = {p["url"]: p for p in payloads if p.get("url")}
 
-    # Build forward adjacency: url → list of nodes that name it as referrer
     children: dict[str, list] = {}
     for p in payloads:
         ref = p.get("referrer_url", "")
         if ref and ref in url_map and ref != p.get("url"):
             children.setdefault(ref, []).append(p)
 
-    # Chain roots: have at least one child, but their own referrer isn't in our data
     roots = [
         url_map[url] for url in url_map
         if url in children
@@ -518,31 +513,50 @@ def get_rabbit_hole_insights():
         })
     same_tab.sort(key=lambda x: x["node_count"], reverse=True)
 
-    return {"rabbit_holes": inter_tab[:5] + same_tab[:5]}
+    return {
+        "rabbit_holes": inter_tab[:5] + same_tab[:5],
+        "time_window_hours": hours,
+    }
 
+
+# ─── Insight: Distraction Summary (with time window) ──────────
 
 @app.get("/api/v1/insights/distraction-summary")
-def get_distraction_summary():
+def get_distraction_summary(
+    hours: Optional[float] = Query(default=None, ge=1, description="Time window in hours. Omit for all-time.")
+):
     """
     Distraction fingerprint — patterns, domains, time lost.
+    Filtered by time window when hours is provided.
     """
     client = get_qdrant_client()
+
+    base_filter = time_filter(hours)
+
+    # Combine distraction=True with optional time filter
+    distraction_condition = FieldCondition(key="is_distraction", match=MatchValue(value=True))
+    if base_filter:
+        scroll_filter = Filter(must=base_filter.must + [distraction_condition])
+    else:
+        scroll_filter = Filter(must=[distraction_condition])
+
     results, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
-        scroll_filter=Filter(
-            must=[FieldCondition(key="is_distraction", match=MatchValue(value=True))]
-        ),
+        scroll_filter=scroll_filter,
         limit=200,
         with_payload=True,
     )
-    
+
     payloads = [r.payload for r in results]
     if not payloads:
-        return {"total": 0, "time_lost": 0, "by_domain": [], "by_cluster": []}
-    
+        return {
+            "total": 0, "time_lost": 0,
+            "by_domain": [], "by_cluster": [],
+            "time_window_hours": hours,
+        }
+
     total_time = sum(p.get("time_spent", 0) for p in payloads)
-    
-    # By domain
+
     domain_map: dict[str, dict] = {}
     for p in payloads:
         d = p.get("domain", "unknown")
@@ -550,8 +564,7 @@ def get_distraction_summary():
             domain_map[d] = {"domain": d, "visits": 0, "time_spent": 0}
         domain_map[d]["visits"]     += p.get("visit_count", 1)
         domain_map[d]["time_spent"] += p.get("time_spent", 0)
-    
-    # By cluster
+
     cluster_map: dict[str, dict] = {}
     for p in payloads:
         c = p.get("cluster", "unknown")
@@ -559,48 +572,68 @@ def get_distraction_summary():
             cluster_map[c] = {"cluster": c, "count": 0, "time_spent": 0}
         cluster_map[c]["count"]      += 1
         cluster_map[c]["time_spent"] += p.get("time_spent", 0)
-    
+
     return {
-        "total":      len(payloads),
-        "time_lost":  total_time,
-        "by_domain":  sorted(domain_map.values(),  key=lambda x: x["time_spent"], reverse=True)[:8],
-        "by_cluster": sorted(cluster_map.values(), key=lambda x: x["time_spent"], reverse=True),
+        "total":              len(payloads),
+        "time_lost":          total_time,
+        "by_domain":          sorted(domain_map.values(),  key=lambda x: x["time_spent"], reverse=True)[:8],
+        "by_cluster":         sorted(cluster_map.values(), key=lambda x: x["time_spent"], reverse=True),
+        "time_window_hours":  hours,
     }
 
 
-@app.get("/api/v1/insights/focus-summary")  
-def get_focus_summary():
-    """Overall focus stats for the dashboard."""
+# ─── Insight: Focus Summary (with time window) ────────────────
+
+@app.get("/api/v1/insights/focus-summary")
+def get_focus_summary(
+    hours: Optional[float] = Query(default=None, ge=1, description="Time window in hours. Omit for all-time.")
+):
+    """
+    Overall focus stats for the dashboard.
+    Filtered by time window when hours is provided.
+    """
     client = get_qdrant_client()
+
+    scroll_filter = time_filter(hours)
+
     all_nodes, _ = client.scroll(
         collection_name=ACTIVE_CONFIG.collection_name,
+        scroll_filter=scroll_filter,
         limit=500,
         with_payload=True,
     )
-    
+
     payloads = [r.payload for r in all_nodes]
     if not payloads:
-        return {"avg_focus": 0, "total_time": 0, "focus_time": 0, "distraction_time": 0}
-    
-    total_time      = sum(p.get("time_spent", 0) for p in payloads)
+        return {
+            "avg_focus": 0, "total_time": 0,
+            "focus_time": 0, "distraction_time": 0,
+            "total_nodes": 0, "distraction_nodes": 0,
+            "time_window_hours": hours,
+        }
+
+    total_time       = sum(p.get("time_spent", 0) for p in payloads)
     distraction_time = sum(p.get("time_spent", 0) for p in payloads if p.get("is_distraction"))
-    focus_time      = total_time - distraction_time
-    avg_focus       = sum(p.get("focus_score", 0) for p in payloads) / len(payloads)
-    
+    focus_time       = total_time - distraction_time
+    avg_focus        = sum(p.get("focus_score", 0) for p in payloads) / len(payloads)
+
     return {
-        "avg_focus":         round(avg_focus, 2),
-        "total_time":        total_time,
-        "focus_time":        focus_time,
-        "distraction_time":  distraction_time,
-        "total_nodes":       len(payloads),
-        "distraction_nodes": sum(1 for p in payloads if p.get("is_distraction")),
+        "avg_focus":          round(avg_focus, 2),
+        "total_time":         total_time,
+        "focus_time":         focus_time,
+        "distraction_time":   distraction_time,
+        "total_nodes":        len(payloads),
+        "distraction_nodes":  sum(1 for p in payloads if p.get("is_distraction")),
+        "time_window_hours":  hours,
     }
+
+
+# ─── Graph: Referrer Chain (Neo4j) ────────────────────────────
 
 @app.get("/api/v1/graph/referrer-chain/{node_id}")
 def get_referrer_chain(node_id: str):
     """
     Trace back how you arrived at a page — pure Neo4j graph traversal.
-    This is what Qdrant cannot do — follow directed edges.
     """
     try:
         from neo4j import GraphDatabase
@@ -609,7 +642,6 @@ def get_referrer_chain(node_id: str):
             auth=("neo4j", "constellation")
         )
         with driver.session() as session:
-            # Forward chain — what did this tab lead to?
             forward = session.run("""
                 MATCH (n:BrowsingNode {node_id: $node_id})-[:REFERRED_TO*1..5]->(m:BrowsingNode)
                 RETURN m.title AS title, m.domain AS domain,
@@ -618,7 +650,6 @@ def get_referrer_chain(node_id: str):
                 LIMIT 5
             """, {"node_id": node_id})
 
-            # Backward chain — how did I get here?
             backward = session.run("""
                 MATCH (origin:BrowsingNode)-[:REFERRED_TO*1..5]->(target:BrowsingNode {node_id: $node_id})
                 RETURN [n IN nodes(
@@ -636,13 +667,13 @@ def get_referrer_chain(node_id: str):
                 LIMIT 1
             """, {"node_id": node_id})
 
-            forward_chain = [dict(r) for r in forward]
-            backward_row  = backward.single()
+            forward_chain  = [dict(r) for r in forward]
+            backward_row   = backward.single()
             backward_chain = backward_row["chain"] if backward_row else []
 
         driver.close()
         return {
-            "node_id":       node_id,
+            "node_id":        node_id,
             "how_i_got_here": backward_chain,
             "led_to":         forward_chain,
         }
@@ -650,11 +681,12 @@ def get_referrer_chain(node_id: str):
         return {"node_id": node_id, "how_i_got_here": [], "led_to": [], "error": str(e)}
 
 
+# ─── Graph: Temporal Neighbors (Neo4j) ───────────────────────
+
 @app.get("/api/v1/graph/temporal-neighbors/{node_id}")
 def get_temporal_neighbors(node_id: str):
     """
     Find tab before and after using Neo4j FOLLOWED_BY edges.
-    Pure graph traversal — Qdrant cannot do this.
     """
     try:
         from neo4j import GraphDatabase
@@ -708,6 +740,7 @@ def get_temporal_neighbors(node_id: str):
         }
     except Exception as e:
         return {"before": None, "after": None, "node_id": node_id, "error": str(e)}
+
 
 # ─── Standalone run ────────────────────────────────────────────
 
