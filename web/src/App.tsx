@@ -21,6 +21,14 @@ type RabbitHole = {
   origin_cluster: string; exit_cluster: string; chain: ChainNode[]
   type?: 'new_tab' | 'same_tab'
 }
+type SessionPathNode = {
+  node_id: string; title: string; domain: string
+  cluster: string; url: string; is_distraction: boolean
+}
+type SessionPath = {
+  session_id: string; path: SessionPathNode[]
+  clicked_idx: number; edge_count: number
+}
 type DistractionSummary = {
   total: number; time_lost: number
   by_domain: { domain: string; visits: number; time_spent: number }[]
@@ -202,6 +210,8 @@ export default function App() {
   const [searching,     setSearching]     = useState(false)
   const [highlightUrls, setHighlightUrls] = useState<Set<string>>(new Set())
   const [panel,         setPanel]         = useState<Panel>('none')
+
+  const [sessionPath, setSessionPath] = useState<SessionPath | null>(null)
 
   // ── Per-section independent time windows (default 24H = index 2) ──
   const [twConstellation, setTwConstellation] = useState(2)
@@ -393,29 +403,113 @@ export default function App() {
     }
     function onMouseDown(e: MouseEvent) { dragging=true; lastX=e.clientX; lastY=e.clientY }
     function onMouseUp() { dragging=false }
+    function clearSessionOverlay() {
+      scene.children.filter(c => (c as any).__sessionOverlay).forEach(l => scene.remove(l))
+    }
+
+    function drawSessionArrows(
+      orderedUrls: string[],
+      clickedUrl: string,
+      isDistraction: Record<string, boolean>
+    ) {
+      clearSessionOverlay()
+      const positions: { pos: THREE.Vector3; url: string }[] = []
+      orderedUrls.forEach(url => {
+        meshes.forEach(m => {
+          const n = nodeMap.get(m)
+          if (n?.url === url) positions.push({ pos: m.position.clone(), url })
+        })
+      })
+      if (positions.length < 2) return
+
+      for (let i = 0; i < positions.length - 1; i++) {
+        const from = positions[i].pos
+        const to   = positions[i + 1].pos
+        const dir  = new THREE.Vector3().subVectors(to, from)
+        const len  = dir.length()
+        if (len < 0.01) continue
+
+        const distracted = isDistraction[positions[i].url] || isDistraction[positions[i+1].url]
+        const color = distracted ? 0xf87171 : 0x60a5fa
+
+        // Shaft — use TubeGeometry for visible thickness
+        const arrowDir  = dir.clone().normalize()
+        const shaftEnd  = from.clone().add(arrowDir.clone().multiplyScalar(len * 0.78))
+        const shaftCurve = new THREE.LineCurve3(from, shaftEnd)
+        const shaftGeo  = new THREE.TubeGeometry(shaftCurve, 1, 0.18, 6, false)
+        const shaftMesh = new THREE.Mesh(shaftGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }))
+        ;(shaftMesh as any).__sessionOverlay = true
+        scene.add(shaftMesh)
+
+        // Arrowhead cone — bigger and more visible
+        const arrowLen = Math.min(2.8, len * 0.22)
+        const arrowTip = to.clone()
+        const coneMid  = arrowTip.clone().sub(arrowDir.clone().multiplyScalar(arrowLen * 0.5))
+        const coneGeo  = new THREE.ConeGeometry(0.55, arrowLen, 8)
+        const cone     = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 }))
+        cone.position.copy(coneMid)
+        cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrowDir)
+        ;(cone as any).__sessionOverlay = true
+        scene.add(cone)
+      }
+
+      // Yellow dot at session start
+      const startDot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.55, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 })
+      )
+      startDot.position.copy(positions[0].pos)
+      ;(startDot as any).__sessionOverlay = true
+      scene.add(startDot)
+
+      // Dim everything not in session, highlight path nodes
+      meshes.forEach(m => {
+        const n = nodeMap.get(m); if (!n) return
+        const mat = m.material as THREE.MeshStandardMaterial
+        if (n.url === clickedUrl) {
+          mat.emissiveIntensity = 3.0; mat.color.setHex(0xffffff); mat.opacity = 1.0
+        } else if (orderedUrls.includes(n.url)) {
+          mat.emissiveIntensity = 1.8
+          mat.color.setHex(isDistraction[n.url] ? 0xf87171 : 0x60a5fa)
+          mat.opacity = 1.0
+        } else {
+          mat.emissiveIntensity = 0.04; mat.opacity = 0.06
+        }
+      })
+    }
+
     function onClick() {
       if (!hoveredMesh) {
-        setSelected(null); setHighlightUrls(new Set())
-        scene.children.filter(c=>(c as any).__chainLine).forEach(l=>scene.remove(l)); return
+        setSelected(null)
+        setHighlightUrls(new Set())
+        setSessionPath(null)
+        clearSessionOverlay()
+        meshes.forEach(m => {
+          const n = nodeMap.get(m); if (!n) return
+          const mat = m.material as THREE.MeshStandardMaterial
+          mat.emissiveIntensity = n.is_escape_node ? 1.0 : 0.3
+          mat.opacity = n.days_since_visit > 21 ? 0.2 : 1.0
+          mat.color.setHex(cc(n.cluster))
+        })
+        return
       }
       const node = nodeMap.get(hoveredMesh!); if (!node) return
-      setSelected(s => s===node ? null : node)
-      fetch(`http://localhost:8001/api/v1/graph/referrer-chain/${node.node_id}`)
-        .then(r=>r.json()).then(data => {
-          const allInChain = [...(data.how_i_got_here??[]),{url:node.url},...(data.led_to??[])]
-          const urls = new Set<string>(allInChain.map((n:{url?:string})=>n.url??'').filter(Boolean))
-          scene.children.filter(c=>(c as any).__chainLine).forEach(l=>scene.remove(l))
-          if (urls.size > 1) {
-            setHighlightUrls(urls)
-            const orderedUrls = [...(data.how_i_got_here??[]).map((n:{url:string})=>n.url),node.url,...(data.led_to??[]).map((n:{url:string})=>n.url)]
-            const positions: THREE.Vector3[] = []
-            orderedUrls.forEach((url:string) => meshes.forEach(m => { const n=nodeMap.get(m); if(n?.url===url) positions.push(m.position.clone()) }))
-            if (positions.length > 1) {
-              const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions), new THREE.LineBasicMaterial({color:0x60a5fa,transparent:true,opacity:0.9}))
-              ;(line as any).__chainLine=true; scene.add(line)
-            }
-          } else { setHighlightUrls(new Set()) }
-        }).catch(()=>{})
+      setSelected(s => s === node ? null : node)
+      clearSessionOverlay()
+
+      fetch('http://localhost:8001/api/v1/graph/session-path/' + node.node_id)
+        .then(r => r.json())
+        .then(data => {
+          const path: SessionPathNode[] = data.path ?? []
+          if (path.length < 2) { setSessionPath(null); return }
+          setSessionPath({ ...data, path })
+          const orderedUrls = path.map((n: SessionPathNode) => n.url)
+          const isDistraction: Record<string, boolean> = {}
+          path.forEach((n: SessionPathNode) => { isDistraction[n.url] = n.is_distraction })
+          setHighlightUrls(new Set(orderedUrls))
+          drawSessionArrows(orderedUrls, node.url, isDistraction)
+        })
+        .catch(() => { setSessionPath(null) })
     }
     function onWheel(e: WheelEvent) { camera.position.z = Math.max(20,Math.min(150,camera.position.z+e.deltaY*0.04)) }
     function onResize() { camera.aspect=el.clientWidth/el.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth,el.clientHeight) }
@@ -599,7 +693,57 @@ export default function App() {
             <a href={selected.url} target="_blank" rel="noreferrer" style={{ display: 'block', color: '#60a5fa', fontSize: 10, textDecoration: 'none', fontFamily: "'Space Mono', monospace", opacity: 0.7 }}>
               ↗ {selected.url.slice(0, 50)}{selected.url.length > 50 ? '…' : ''}
             </a>
-            <ReferrerChain nodeId={selected.node_id} />
+            {/* Session Path — Neo4j FOLLOWED_BY chain */}
+            {sessionPath && sessionPath.path.length >= 2 && (
+              <div style={{ marginTop: 12, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <p style={{ fontSize: 9, color: '#60a5fa', fontFamily: "'Space Mono', monospace", letterSpacing: 2 }}>
+                    SESSION PATH <span style={{ color: '#1e3a5f' }}>(Neo4j)</span>
+                  </p>
+                  <span style={{ fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
+                    {sessionPath.edge_count} HOPS
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {sessionPath.path.map((n, i) => {
+                    const isClicked = n.node_id === selected.node_id
+                    const isFirst   = i === 0
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* Step indicator */}
+                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                          <div style={{
+                            width: isFirst ? 10 : 7, height: isFirst ? 10 : 7,
+                            borderRadius: '50%',
+                            background: isClicked ? '#ffffff' : n.is_distraction ? '#f87171' : '#60a5fa',
+                            boxShadow: isClicked ? '0 0 8px #ffffff' : n.is_distraction ? '0 0 6px #f87171' : 'none',
+                            flexShrink: 0,
+                          }} />
+                          {i < sessionPath.path.length - 1 && (
+                            <div style={{ width: 1, height: 10, background: '#1e3a5f', marginTop: 1 }} />
+                          )}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0, paddingBottom: i < sessionPath.path.length - 1 ? 6 : 0 }}>
+                          <p style={{
+                            margin: 0, fontSize: isClicked ? 11 : 10,
+                            fontWeight: isClicked ? 700 : 400,
+                            color: isClicked ? 'white' : n.is_distraction ? '#f87171' : '#64748b',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                          }}>
+                            {isFirst && <span style={{ color: '#fbbf24', marginRight: 4 }}>●</span>}
+                            {n.title}
+                          </p>
+                          <p style={{ margin: 0, fontSize: 9, color: '#334155', fontFamily: "'Space Mono', monospace" }}>
+                            {n.domain}
+                            {n.is_distraction && <span style={{ color: '#f87171', marginLeft: 6 }}>⚠</span>}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

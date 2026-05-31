@@ -245,7 +245,7 @@ def make_rabbit_hole_session(session_id: str, days_ago: int) -> list[dict]:
 def make_normal_session(session_id: str, days_ago: int, length: int = None) -> list[dict]:
     """Generate a normal focused browsing session (2-5 nodes, same cluster)."""
     if length is None:
-        length = random.randint(2, 5)
+        length = random.randint(4, 8)
     primary_cluster = random.choice(list(SITES_BY_CLUSTER.keys()))
     if primary_cluster == "youtube spiral":
         primary_cluster = "entertainment"
@@ -305,7 +305,7 @@ def generate_nodes(n_nodes: int, n_days: int) -> list[dict]:
 
     # ── Guarantee rabbit holes at different time windows ────────
     # Today / yesterday (6H–24H window)
-    for _ in range(3):
+    for _ in range(5):
         sid = f"session_{session_counter:04d}"; session_counter += 1
         all_nodes.extend(make_rabbit_hole_session(sid, days_ago=0))
 
@@ -315,7 +315,7 @@ def generate_nodes(n_nodes: int, n_days: int) -> list[dict]:
         all_nodes.extend(make_rabbit_hole_session(sid, days_ago=random.randint(1, 2)))
 
     # 3-6 days ago (1W window)
-    for _ in range(3):
+    for _ in range(4):
         sid = f"session_{session_counter:04d}"; session_counter += 1
         all_nodes.extend(make_rabbit_hole_session(sid, days_ago=random.randint(3, 6)))
 
@@ -340,7 +340,7 @@ def generate_nodes(n_nodes: int, n_days: int) -> list[dict]:
 
         while day_nodes < day_target:
             sid = f"session_{session_counter:04d}"; session_counter += 1
-            length = random.randint(2, 5)
+            length = random.randint(4, 8)
             batch = make_normal_session(sid, days_ago=days_ago, length=length)
             all_nodes.extend(batch)
             day_nodes += len(batch)
@@ -413,12 +413,30 @@ def upsert_to_qdrant(client: QdrantClient, nodes: list[dict], model: SentenceTra
 # ── Neo4j ──────────────────────────────────────────────────────
 
 def upsert_to_neo4j(nodes: list[dict]) -> None:
+    """
+    Insert nodes grouped by session, ordered by depth.
+    This guarantees FOLLOWED_BY edges are built correctly —
+    depth=0 is always in Neo4j before depth=1 tries to link to it.
+    """
     try:
         from neo4j import GraphDatabase
+        from collections import defaultdict
         driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
         print(f"\nWriting {len(nodes)} nodes to Neo4j...")
+
+        # Group by session, sort each session by depth
+        sessions: dict = defaultdict(list)
+        for n in nodes:
+            sessions[n["session_id"]].append(n)
+        for sid in sessions:
+            sessions[sid].sort(key=lambda x: x["depth"])
+
+        # Flatten back in session-depth order
+        ordered = [n for sid in sessions for n in sessions[sid]]
+
         with driver.session() as s:
-            for i, n in enumerate(nodes):
+            for i, n in enumerate(ordered):
+                # Upsert the node
                 s.run("""
                     MERGE (node:BrowsingNode {node_id: $node_id})
                     SET node.url            = $url,
@@ -438,14 +456,19 @@ def upsert_to_neo4j(nodes: list[dict]) -> None:
                     MERGE (node)-[:HOSTED_ON] ->(d)
                     MERGE (node)-[:BELONGS_TO]->(c)
                 """, n)
+
+                # Build FOLLOWED_BY using referrer_url — now guaranteed to exist
+                # since we process depth=0 before depth=1 etc.
                 if n.get("referrer_url"):
                     s.run("""
                         MATCH (prev:BrowsingNode {url: $ref})
                         MATCH (curr:BrowsingNode {node_id: $nid})
                         MERGE (prev)-[:FOLLOWED_BY]->(curr)
                     """, {"ref": n["referrer_url"], "nid": n["node_id"]})
+
                 if (i+1) % 30 == 0:
-                    print(f"  Neo4j: {i+1}/{len(nodes)}")
+                    print(f"  Neo4j: {i+1}/{len(ordered)}")
+
         driver.close()
         print("Neo4j done")
     except Exception as e:

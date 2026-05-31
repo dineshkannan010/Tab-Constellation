@@ -681,12 +681,24 @@ def get_referrer_chain(node_id: str):
         return {"node_id": node_id, "how_i_got_here": [], "led_to": [], "error": str(e)}
 
 
-# ─── Graph: Temporal Neighbors (Neo4j) ───────────────────────
+# ─── Graph: Full Session Path (Neo4j) ────────────────────────
+#
+# Given any node_id, walk the FOLLOWED_BY chain to find the
+# session root, then traverse forward to get the full ordered
+# path for that session. Returns nodes in browsing order so
+# the frontend can draw directed arrows A → B → C → D.
 
-@app.get("/api/v1/graph/temporal-neighbors/{node_id}")
-def get_temporal_neighbors(node_id: str):
+@app.get("/api/v1/graph/session-path/{node_id}")
+def get_session_path(node_id: str):
     """
-    Find tab before and after using Neo4j FOLLOWED_BY edges.
+    Returns the full ordered FOLLOWED_BY chain for the session
+    that contains this node. Neo4j traversal — Qdrant cannot do this.
+
+    Response:
+      session_id  : str
+      path        : [ { node_id, title, domain, cluster, url, is_distraction } ]
+      clicked_idx : int  — index of the clicked node within path
+      edge_count  : int  — number of FOLLOWED_BY edges traversed
     """
     try:
         from neo4j import GraphDatabase
@@ -695,51 +707,62 @@ def get_temporal_neighbors(node_id: str):
             auth=("neo4j", "constellation")
         )
         with driver.session() as s:
-            result = s.run("""
-                MATCH (curr:BrowsingNode {node_id: $node_id})
-                OPTIONAL MATCH (prev:BrowsingNode)-[:FOLLOWED_BY]->(curr)
-                OPTIONAL MATCH (curr)-[:FOLLOWED_BY]->(next:BrowsingNode)
-                RETURN
-                    prev.node_id  AS before_id,
-                    prev.title    AS before_title,
-                    prev.url      AS before_url,
-                    prev.cluster  AS before_cluster,
-                    prev.domain   AS before_domain,
-                    next.node_id  AS after_id,
-                    next.title    AS after_title,
-                    next.url      AS after_url,
-                    next.cluster  AS after_cluster,
-                    next.domain   AS after_domain
-            """, {"node_id": node_id})
+            # Step 1: get session_id for this node
+            row = s.run("""
+                MATCH (n:BrowsingNode {node_id: $node_id})
+                RETURN n.session_id AS session_id
+            """, {"node_id": node_id}).single()
 
-            row = result.single()
-            if not row:
-                return {"before": None, "after": None, "current": node_id}
+            if not row or not row["session_id"]:
+                return {"session_id": None, "path": [], "clicked_idx": 0, "edge_count": 0}
 
-            before = {
-                "node_id": row["before_id"],
-                "title":   row["before_title"],
-                "url":     row["before_url"],
-                "cluster": row["before_cluster"],
-                "domain":  row["before_domain"],
-            } if row["before_id"] else None
+            session_id = row["session_id"]
 
-            after = {
-                "node_id": row["after_id"],
-                "title":   row["after_title"],
-                "url":     row["after_url"],
-                "cluster": row["after_cluster"],
-                "domain":  row["after_domain"],
-            } if row["after_id"] else None
+            # Step 2: find the root (no incoming FOLLOWED_BY in this session)
+            root_row = s.run("""
+                MATCH (n:BrowsingNode {session_id: $session_id})
+                WHERE NOT (:BrowsingNode {session_id: $session_id})-[:FOLLOWED_BY]->(n)
+                RETURN n.node_id AS root_id
+                LIMIT 1
+            """, {"session_id": session_id}).single()
+
+            if not root_row:
+                # Fallback: get all nodes in session ordered by depth
+                results = s.run("""
+                    MATCH (n:BrowsingNode {session_id: $session_id})
+                    RETURN n.node_id AS node_id, n.title AS title,
+                           n.domain AS domain, n.cluster AS cluster,
+                           n.url AS url, n.is_distraction AS is_distraction
+                    ORDER BY n.depth ASC
+                """, {"session_id": session_id})
+                path = [dict(r) for r in results]
+            else:
+                # Step 3: walk FOLLOWED_BY chain from root
+                results = s.run("""
+                    MATCH path = (root:BrowsingNode {node_id: $root_id})-[:FOLLOWED_BY*0..50]->(n:BrowsingNode)
+                    WHERE ALL(x IN nodes(path) WHERE x.session_id = $session_id)
+                    WITH n, length(path) AS hop
+                    ORDER BY hop ASC
+                    RETURN n.node_id AS node_id, n.title AS title,
+                           n.domain AS domain, n.cluster AS cluster,
+                           n.url AS url, n.is_distraction AS is_distraction
+                """, {"root_id": root_row["root_id"], "session_id": session_id})
+                path = [dict(r) for r in results]
 
         driver.close()
+
+        # Find index of clicked node in path
+        clicked_idx = next((i for i, n in enumerate(path) if n["node_id"] == node_id), 0)
+
         return {
-            "node_id": node_id,
-            "before":  before,
-            "after":   after,
+            "session_id":  session_id,
+            "path":        path,
+            "clicked_idx": clicked_idx,
+            "edge_count":  max(0, len(path) - 1),
         }
+
     except Exception as e:
-        return {"before": None, "after": None, "node_id": node_id, "error": str(e)}
+        return {"session_id": None, "path": [], "clicked_idx": 0, "edge_count": 0, "error": str(e)}
 
 
 # ─── Standalone run ────────────────────────────────────────────
