@@ -125,3 +125,9 @@ html, body, #root {
   margin: 0;
   padding: 0;
 }
+
+/* Make placeholders readable on dark inputs */
+input::placeholder {
+  color: #475569;
+  opacity: 1;
+}

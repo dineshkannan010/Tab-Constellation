@@ -7,12 +7,15 @@ Loads user profile from data/user_profile.json for personalized rules.
 from __future__ import annotations
 import hashlib
 import json
-from datetime import datetime, timezone
+import os
 from pathlib import Path
 from functools import lru_cache
 from neo4j import GraphDatabase
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, PayloadSchemaType
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────
 QDRANT_URL      = "http://localhost:6333"
@@ -20,7 +23,7 @@ COLLECTION_NAME = "tab_constellation"
 VECTOR_DIM      = 384
 NEO4J_URI       = "bolt://localhost:7687"
 NEO4J_USER      = "neo4j"
-NEO4J_PASSWORD  = "constellation"
+NEO4J_PASSWORD  = os.environ["NEO4J_PASSWORD"]
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 NLI_MODEL       = "cross-encoder/nli-MiniLM2-L6-H768"
 
@@ -533,7 +536,7 @@ def process_tab(tab: dict) -> None:
             "is_distraction":            distraction,
             "focus_score":               focus,
             "days_since_visit":          0,
-            "last_visited_at":           last_visited_at,
+            "ingested_at":               __import__("time").time(),
             "visit_count":               visit_count,
             "time_spent":                existing_time,
             "scroll_depth":              0.0,
