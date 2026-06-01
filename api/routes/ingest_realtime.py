@@ -532,6 +532,7 @@ def process_tab(tab: dict) -> None:
             "is_distraction":            distraction,
             "focus_score":               focus,
             "days_since_visit":          0,
+            "ingested_at":               __import__("time").time(),
             "visit_count":               visit_count,
             "time_spent":                existing_time,
             "scroll_depth":              0.0,

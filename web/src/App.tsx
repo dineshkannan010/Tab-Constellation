@@ -9,7 +9,7 @@ type Node = {
   focus_score: number; is_distraction: boolean; is_escape_node: boolean
   days_since_visit: number; session_id: string; depth: number
   url: string; visit_count: number; time_spent: number
-  meta_description?: string; tab_id?: string
+  meta_description?: string; tab_id?: string; ingested_at?: number
 }
 type ChainNode = {
   title: string; domain: string; cluster: string; depth: number
@@ -250,13 +250,20 @@ export default function App() {
   }, [selected])
 
   // Constellation filter — cluster + time window (client-side on allNodes)
+  // Uses ingested_at (Unix timestamp) if available, falls back to days_since_visit
   useEffect(() => {
-    const maxDays = TIME_WINDOWS[twConstellation].hours !== null
-      ? (TIME_WINDOWS[twConstellation].hours! / 24)
-      : 9999
+    const hours = TIME_WINDOWS[twConstellation].hours
+    const now = Date.now() / 1000 // seconds
     let f = allNodes
     if (activeCluster) f = f.filter(n => n.cluster === activeCluster)
-    f = f.filter(n => n.days_since_visit <= maxDays)
+    if (hours !== null) {
+      const cutoff = now - hours * 3600
+      f = f.filter(n => {
+        if (n.ingested_at) return n.ingested_at >= cutoff
+        // fallback: days_since_visit for synthetic data
+        return n.days_since_visit <= hours / 24
+      })
+    }
     setNodes(f)
   }, [allNodes, activeCluster, twConstellation])
 
@@ -374,13 +381,7 @@ export default function App() {
       scene.add(mesh); meshes.push(mesh); nodeMap.set(mesh, node)
     })
     meshesRef.current = meshes; nodeMapRef.current = nodeMap
-    const sessionGroups: Record<string, THREE.Mesh[]> = {}
-    meshes.forEach(m => { const n = nodeMap.get(m)!; (sessionGroups[n.session_id]??=[]).push(m) })
-    Object.values(sessionGroups).forEach(group => {
-      if (group.length < 2) return
-      const geo = new THREE.BufferGeometry().setFromPoints(group.map(m=>m.position))
-      scene.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x1e3a5f, transparent: true, opacity: 0.3 })))
-    })
+    // No static hull lines — session edges drawn on-demand via drawSessionArrows on click
     const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2()
     let hoveredMesh: THREE.Mesh | null = null
     function onMouseMove(e: MouseEvent) {
@@ -411,15 +412,22 @@ export default function App() {
     function drawSessionArrows(
       orderedUrls: string[],
       clickedUrl: string,
-      isDistraction: Record<string, boolean>
+      isDistraction: Record<string, boolean>,
+      sessionId: string
     ) {
       clearSessionOverlay()
+      // Build positions in path order — match by node_id first (exact), fallback to url
+      // Deduplicate: only one mesh per path step to avoid multi-mesh URL collisions
+      const sessionMeshes = meshes.filter(m => nodeMap.get(m)?.session_id === sessionId)
       const positions: { pos: THREE.Vector3; url: string }[] = []
       orderedUrls.forEach(url => {
-        meshes.forEach(m => {
+        for (const m of sessionMeshes) {
           const n = nodeMap.get(m)
-          if (n?.url === url) positions.push({ pos: m.position.clone(), url })
-        })
+          if (n?.url === url) {
+            positions.push({ pos: m.position.clone(), url })
+            break  // ← take only the FIRST match per URL, no duplicates
+          }
+        }
       })
       if (positions.length < 2) return
 
@@ -498,19 +506,55 @@ export default function App() {
       setSelected(s => s === node ? null : node)
       clearSessionOverlay()
 
+      // Helper: draw session from Qdrant node data directly (fallback when Neo4j unavailable)
+      function drawSessionFromQdrant(clickedNode: Node) {
+        const sessionNodes = Array.from(nodeMap.values()).filter(n => n.session_id === clickedNode.session_id)
+        if (sessionNodes.length < 2) return
+        const sorted = [...sessionNodes].sort((a, b) => a.depth - b.depth)
+        // Dedupe by node_id
+        const seen = new Set<string>()
+        const deduped = sorted.filter(n => { if (seen.has(n.node_id)) return false; seen.add(n.node_id); return true })
+        // Cap at 15 nodes — large sessions (real browsing) would cause spider web
+        const capped = deduped.length > 15
+          ? [...deduped.filter(n => n.node_id === clickedNode.node_id),
+             ...deduped.filter(n => n.node_id !== clickedNode.node_id)].slice(0, 15)
+          : deduped
+        const orderedUrls = capped.map(n => n.url)
+        const isDistraction: Record<string, boolean> = {}
+        capped.forEach(n => { isDistraction[n.url] = n.is_distraction })
+        const fakePath: SessionPathNode[] = capped.map(n => ({
+          node_id: n.node_id, title: n.title, domain: n.domain,
+          cluster: n.cluster, url: n.url, is_distraction: n.is_distraction,
+        }))
+        setSessionPath({ session_id: clickedNode.session_id, path: fakePath, clicked_idx: capped.findIndex(n => n.node_id === clickedNode.node_id), edge_count: capped.length - 1 })
+        setHighlightUrls(new Set(orderedUrls))
+        drawSessionArrows(orderedUrls, clickedNode.url, isDistraction, clickedNode.session_id)
+      }
+
+      // Ground-truth session size from Qdrant — used to sanity-check Neo4j response
+      const sessionSize = Array.from(nodeMap.values()).filter(n => n.session_id === node.session_id).length
+
       fetch('http://localhost:8001/api/v1/graph/session-path/' + node.node_id)
         .then(r => r.json())
         .then(data => {
           const path: SessionPathNode[] = data.path ?? []
-          if (path.length < 2) { setSessionPath(null); return }
+          // If Neo4j returns more nodes than exist in this session (+ small buffer),
+          // it's bleeding into other sessions — fall back to Qdrant grouping
+          const maxAllowed = Math.min(sessionSize + 2, 15)
+          if (path.length < 2 || path.length > maxAllowed) {
+            drawSessionFromQdrant(node)
+            return
+          }
           setSessionPath({ ...data, path })
           const orderedUrls = path.map((n: SessionPathNode) => n.url)
           const isDistraction: Record<string, boolean> = {}
           path.forEach((n: SessionPathNode) => { isDistraction[n.url] = n.is_distraction })
           setHighlightUrls(new Set(orderedUrls))
-          drawSessionArrows(orderedUrls, node.url, isDistraction)
+          drawSessionArrows(orderedUrls, node.url, isDistraction, node.session_id)
         })
-        .catch(() => { setSessionPath(null) })
+        .catch(() => {
+          drawSessionFromQdrant(node)
+        })
     }
     function onWheel(e: WheelEvent) { camera.position.z = Math.max(20,Math.min(150,camera.position.z+e.deltaY*0.04)) }
     function onResize() { camera.aspect=el.clientWidth/el.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth,el.clientHeight) }
