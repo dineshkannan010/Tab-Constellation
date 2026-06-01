@@ -3,6 +3,41 @@ import * as THREE from 'three'
 
 const API = ''
 
+// Sub-day quick-picks (in hours). Days are handled by the 1–30 slider.
+const HOUR_STOPS = [1, 3, 6, 12]
+
+// Hours since a node was last visited. Prefers the real timestamp.
+// When it's missing (legacy node ingested before timestamps existed) we
+// only know the day, so we place it at the END of that day — that keeps
+// such nodes out of the sub-day hour buckets they can't be proven to fit.
+const hoursSince = (n: Node): number => {
+  if (n.last_visited_at) {
+    const t = Date.parse(n.last_visited_at)
+    if (!Number.isNaN(t)) return (Date.now() - t) / 3_600_000
+  }
+  return (n.days_since_visit + 1) * 24
+}
+
+// A node fades once it hasn't been visited in this many hours (7 days).
+const FADING_HOURS = 7 * 24
+
+// True if last visited since the start of *today* (local midnight) — a
+// calendar-day check, not a rolling 24h window. Nodes with no real
+// timestamp can't be confirmed as today, so they don't count.
+const isToday = (n: Node): boolean => {
+  if (!n.last_visited_at) return false
+  const t = Date.parse(n.last_visited_at)
+  if (Number.isNaN(t)) return false
+  const midnight = new Date(); midnight.setHours(0, 0, 0, 0)
+  return t >= midnight.getTime()
+}
+
+// Compact "time ago" label for the void list.
+const agoLabel = (n: Node): string => {
+  const h = hoursSince(n)
+  return h < 24 ? `${Math.max(1, Math.round(h))}H AGO` : `${Math.round(h / 24)}D AGO`
+}
+
 // ── Types ──────────────────────────────────────────────────────
 type Node = {
   node_id: string; title: string; domain: string; cluster: string
@@ -318,7 +353,7 @@ export default function App() {
       const mat = mesh.material as THREE.MeshStandardMaterial
       if (highlightUrls.size === 0) {
         mat.emissiveIntensity = node.is_escape_node ? 1.0 : 0.3
-        mat.opacity = node.days_since_visit > 21 ? 0.2 : 1.0
+        mat.opacity = hoursSince(node) > FADING_HOURS ? 0.2 : 1.0
         mat.color.setHex(cc(node.cluster))
       } else if (highlightUrls.has(node.url)) {
         mat.emissiveIntensity = 2.5; mat.opacity = 1.0; mat.color.setHex(0xffffff)

@@ -514,14 +514,18 @@ def process_tab(tab: dict) -> None:
             distraction, visit_count, description,
             dom_snippet, existing_time, cluster,
         )
- 
+
         embed_text = " ".join(filter(None, [
             description, dom_snippet[:200], title, domain
         ]))
         vector = get_embedding_model().encode(
             [embed_text], normalize_embeddings=True
         )[0].tolist()
- 
+
+        # Real visit time so the frontend can filter by hour, not just day.
+        # Prefer the timestamp the extension sent; fall back to now().
+        last_visited_at = tab.get("timestamp") or datetime.now(timezone.utc).isoformat()
+
         payload = {
             "node_id":                   node_id,
             "url":                       url,
