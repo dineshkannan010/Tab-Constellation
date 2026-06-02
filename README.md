@@ -10,6 +10,8 @@ The extension captures the tabs you visit → the API embeds and classifies them
 an interactive 3D constellation with semantic search.
 Works on **macOS, Linux, and Windows**.
 
+YouTube Demo Link - <https://www.youtube.com/watch?v=H8YAxR0m23g>
+
 <p align="center">
   <img src="https://github.com/user-attachments/assets/b1d8d539-e126-41f6-92a6-24a4c09a963a" alt="Tab Constellation Architecture" width="700"/>
 </p>
