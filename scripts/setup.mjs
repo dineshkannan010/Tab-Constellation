@@ -28,16 +28,29 @@ function run(cmd, args, cwd) {
   }
 }
 
-// 1. Find a Python >= 3.11.
 function findPython() {
-  const candidates = [process.env.PYTHON, 'python3.13', 'python3.12', 'python3.11', 'python3', 'python', 'py'].filter(Boolean);
-  for (const cmd of candidates) {
-    const r = spawnSync(cmd, ['-c', 'import sys;print("%d.%d" % sys.version_info[:2])'], { encoding: 'utf8', shell: isWin });
+  const candidates = [
+    process.env.PYTHON && { cmd: process.env.PYTHON, baseArgs: [] },
+    isWin && { cmd: 'py', baseArgs: ['-3'] },
+    { cmd: 'python3.14', baseArgs: [] },
+    { cmd: 'python3.13', baseArgs: [] },
+    { cmd: 'python3.12', baseArgs: [] },
+    { cmd: 'python3.11', baseArgs: [] },
+    { cmd: 'python3',    baseArgs: [] },
+    { cmd: 'python',     baseArgs: [] },
+  ].filter(Boolean);
+
+  // shell: false avoids cmd.exe mangling parentheses/special chars in the -c script
+  const verScript = 'import sys; v=sys.version_info; print(str(v.major)+chr(46)+str(v.minor))';
+
+  for (const { cmd, baseArgs } of candidates) {
+    const r = spawnSync(cmd, [...baseArgs, '-c', verScript],
+      { encoding: 'utf8', shell: false });   // <-- key change
     if (r.status === 0) {
       const [maj, min] = r.stdout.trim().split('.').map(Number);
       if (maj === 3 && min >= 11) {
-        console.log(`Using Python ${r.stdout.trim()} (${cmd})`);
-        return cmd;
+        console.log(`Using Python ${r.stdout.trim()} (${cmd} ${baseArgs.join(' ')})`);
+        return { cmd, baseArgs };
       }
     }
   }
@@ -45,22 +58,20 @@ function findPython() {
   process.exit(1);
 }
 
-// 2. Ensure api/.env exists (Neo4j password must match docker-compose.yml).
+
 const envPath = join(apiDir, '.env');
 if (!existsSync(envPath)) {
   writeFileSync(envPath, 'NEO4J_PASSWORD=constellation\n');
   console.log('created api/.env');
 }
 
-const python = findPython();
+const { cmd: python, baseArgs: pyArgs } = findPython();
 
-// 3. Create the venv + install Python deps (base + ML libs from the README).
-run(python, ['-m', 'venv', 'venv'], apiDir);
+run(python, [...pyArgs, '-m', 'venv', 'venv'], apiDir);
 run(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip'], apiDir);
 run(venvPython, ['-m', 'pip', 'install', '-r', 'requirements.txt',
   'sentence-transformers', 'neo4j', 'qdrant-client', 'transformers', 'torch', 'python-dotenv'], apiDir);
 
-// 4. Install the frontend.
 run(isWin ? 'npm.cmd' : 'npm', ['install'], webDir);
 
 console.log('\n✓ Setup complete. Start everything with:  node scripts/dev.mjs');
