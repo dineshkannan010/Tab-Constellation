@@ -17,62 +17,48 @@ This repo contains three pieces that talk to each other locally:
 
 - Node.js 18+
 - Python 3.11+
-- Google Chrome (or any Chromium-based browser that supports MV3)
+- Docker Desktop (running) — runs Qdrant + Neo4j
+- Google Chrome or Brave (any Chromium browser that supports MV3)
 
-## Running it locally
+## Setup
 
-Open three terminals — one for the backend, one for the frontend, and
-Chrome itself for the extension.
-
-### 1. Backend (`api/`)
+Two commands get everything running. From the repo root:
 
 ```bash
-cd api
-python -m venv .venv
-# Windows PowerShell:  .\.venv\Scripts\Activate
-# macOS / Linux:       source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+node scripts/setup.mjs    # one time — venv + Python deps + npm install
+node scripts/dev.mjs      # start everything (databases + all services)
 ```
 
-Sanity check: `http://localhost:8000/health` → `{"status":"ok"}`.
+`dev.mjs` starts Qdrant + Neo4j in Docker, waits for them to be healthy, then
+launches the Ingest API (`:8000`), Search API (`:8001`), Event Processor, and
+the frontend (`:5173`) — all in one terminal. Press `Ctrl+C` to stop them.
 
-### 2. Frontend (`web/`)
+Then load the extension:
 
-```bash
-cd web
-npm install
-npm run dev
-```
-
-Opens at `http://localhost:5173`. In the corner you should see
-**✓ Backend connected** (assuming the API from step 1 is running).
-
-### 3. Extension (`extension/`)
-
-1. Open `chrome://extensions`.
+1. Open `chrome://extensions` (or `brave://extensions`).
 2. Toggle **Developer mode** on.
 3. Click **Load unpacked** and select the `extension/` folder.
-4. The Tab Constellation icon appears in the toolbar.
+4. Open <http://localhost:5173> and browse a few tabs to populate the constellation.
+
+**📖 For the full walkthrough — every step, the manual (no-scripts) path, and
+troubleshooting — see [`SETUP.md`](./SETUP.md).**
 
 ## Verifying the full chain
 
-1. Backend running on `:8000`, frontend running on `:5173`, extension loaded.
-2. Click the Tab Constellation icon in the Chrome toolbar.
-3. A new tab opens at `http://localhost:5173`.
-4. The hero **Tab Constellation** + tagline renders.
-5. Top-right badge reads **✓ Backend connected**.
+1. Services running (`node scripts/dev.mjs` prints **✓ All services ready**), extension loaded.
+2. Click the Tab Constellation icon in the toolbar → a tab opens at <http://localhost:5173>.
+3. Browse a few tabs; they appear in the `[ingest]` logs and render as stars.
 
-If the badge says **✗ Backend offline**, the API isn't reachable —
-make sure `uvicorn` is running on port 8000.
+If the extension badge says **✗ Backend offline**, make sure the Ingest API is
+running on port 8000.
 
 ## Security
 
-See [`SECURITY.md`](./SECURITY.md). TL;DR: API binds to loopback only,
-all `/ingest/*` routes require a bearer token, incognito tabs are
-skipped, and `api/data/` plus secrets are gitignored.
+See [`SECURITY.md`](./SECURITY.md). TL;DR: the API binds to loopback only,
+incognito tabs are skipped, and `api/data/` plus secrets are gitignored.
+This is a local single-user tool, so `/ingest/*` routes are unauthenticated.
 
 ## Status
-Capture pipeline lands data in `api/data/*.jsonl` and
-`api/data/screenshots/`. No vector search, no embeddings, no 3D
-rendering yet. The constellation view is a placeholder.
+End-to-end pipeline working: the extension captures tabs → the API embeds
+them and classifies clusters → data lands in Qdrant (vectors) + Neo4j (graph)
+→ the frontend renders the 3D constellation with semantic search.
