@@ -37,3 +37,4 @@ Claude.md
 
 data/
 api/data/api/populate_demo_data.py
+api/diagnose_sessions.py

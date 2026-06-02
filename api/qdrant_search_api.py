@@ -133,6 +133,7 @@ class NodePayload(BaseModel):
     is_escape_node: bool
     time_spent: int
     visit_count: int
+    ingested_at: Optional[float] = None
     meta_description: Optional[str] = None
     tab_id: Optional[str] = None
     referrer_url: str = ""
@@ -731,6 +732,7 @@ def get_session_path(node_id: str):
             root_row = s.run("""
                 MATCH (n:BrowsingNode {session_id: $session_id})
                 WHERE NOT (:BrowsingNode {session_id: $session_id})-[:FOLLOWED_BY]->(n)
+                  AND NOT (:BrowsingNode)-[:FOLLOWED_BY]->(n)
                 RETURN n.node_id AS root_id
                 LIMIT 1
             """, {"session_id": session_id}).single()

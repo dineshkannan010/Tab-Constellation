@@ -1,0 +1,33 @@
+# Tab Constellation — local databases.
+# Replaces the two `docker run` commands from the README with one
+# `docker compose up -d`. The Python/Node services stay native (run via
+# the Makefile) and reach these over localhost, so no code changes.
+services:
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      # Credentials are intentionally simple for this local-only tool.
+      # Must match NEO4J_PASSWORD in api/.env.
+      - NEO4J_AUTH=neo4j/constellation
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+
+# Named volumes persist data across restarts (the old `docker run` setup
+# was ephemeral). Remove them with `make clean` / `docker compose down -v`.
+volumes:
+  qdrant_data:
+  neo4j_data:

@@ -13,6 +13,9 @@ from functools import lru_cache
 from neo4j import GraphDatabase
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, PayloadSchemaType
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────
 QDRANT_URL      = "http://localhost:6333"
@@ -511,14 +514,18 @@ def process_tab(tab: dict) -> None:
             distraction, visit_count, description,
             dom_snippet, existing_time, cluster,
         )
- 
+
         embed_text = " ".join(filter(None, [
             description, dom_snippet[:200], title, domain
         ]))
         vector = get_embedding_model().encode(
             [embed_text], normalize_embeddings=True
         )[0].tolist()
- 
+
+        # Real visit time so the frontend can filter by hour, not just day.
+        # Prefer the timestamp the extension sent; fall back to now().
+        last_visited_at = tab.get("timestamp") or datetime.now(timezone.utc).isoformat()
+
         payload = {
             "node_id":                   node_id,
             "url":                       url,
@@ -529,6 +536,7 @@ def process_tab(tab: dict) -> None:
             "is_distraction":            distraction,
             "focus_score":               focus,
             "days_since_visit":          0,
+            "ingested_at":               __import__("time").time(),
             "visit_count":               visit_count,
             "time_spent":                existing_time,
             "scroll_depth":              0.0,
