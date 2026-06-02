@@ -8,9 +8,11 @@ constellation. Built for a Qdrant hackathon.
 The extension captures the tabs you visit → the API embeds and classifies them
 → data lands in **Qdrant** (vectors) + **Neo4j** (graph) → the frontend renders
 an interactive 3D constellation with semantic search.
-
 Works on **macOS, Linux, and Windows**.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/b1d8d539-e126-41f6-92a6-24a4c09a963a" alt="Tab Constellation Architecture" width="700"/>
+</p>
 ---
 
 ## What you'll be running
